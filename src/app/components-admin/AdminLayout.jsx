@@ -1,0 +1,140 @@
+"use client";
+
+import React, { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  FaUserCircle,
+  FaSignOutAlt,
+  FaUsers,
+  FaFileAlt,
+} from "react-icons/fa";
+import { MdDashboard, MdManageAccounts } from "react-icons/md";
+import { HiOutlineBell, HiMenu, HiX } from "react-icons/hi";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+// ✅ Updated navItems (no double slash)
+const navItems = [
+  { icon: <MdDashboard />, label: "Dashboard", href: "/admin" },
+  { icon: <MdManageAccounts />, label: "Student Management", href: "/admin/student-management" },
+  { icon: <FaUsers />, label: "Parent Management", href: "/admin/parent-management" },
+  { icon: <FaFileAlt />, label: "Student Logs", href: "/admin/student-logs" },
+  { icon: <FaFileAlt />, label: "Reports", href: "/admin/reports" },
+];
+
+const AdminLayout = ({ children }) => {
+  const [openDropdown, setOpenDropdown] = useState(false);
+  const [openMobileMenu, setOpenMobileMenu] = useState(false);
+  const dropdownRef = useRef(null);
+  const pathname = usePathname();
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setOpenDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div className="flex flex-col h-screen bg-gray-100">
+      {/* ✅ Navbar */}
+      <nav
+        className="w-full text-white flex items-center justify-between px-6 py-4 shadow relative"
+        style={{ backgroundColor: "#800000" }}
+      >
+        {/* Left: Hamburger + Title */}
+        <div className="flex items-center gap-6">
+          <button
+            className="md:hidden p-2 rounded-lg hover:bg-white/20 transition"
+            onClick={() => setOpenMobileMenu(!openMobileMenu)}
+          >
+            {openMobileMenu ? <HiX className="w-6 h-6" /> : <HiMenu className="w-6 h-6" />}
+          </button>
+
+          <motion.span
+            className="text-lg font-bold"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+          >
+            School Admin
+          </motion.span>
+        </div>
+
+        {/* Right: Notification + User Dropdown */}
+        <div className="flex items-center gap-4">
+          <HiOutlineBell className="w-6 h-6 text-gray-300 cursor-pointer hover:text-white transition-transform duration-300 hover:scale-110" />
+
+          <div className="relative" ref={dropdownRef}>
+            <button
+              onClick={() => setOpenDropdown(!openDropdown)}
+              className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition"
+            >
+              <FaUserCircle className="w-6 h-6" />
+            </button>
+
+            <AnimatePresence>
+              {openDropdown && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute right-0 mt-2 w-48 bg-white text-gray-700 rounded-lg shadow-lg z-50"
+                >
+                  <a href="#profile" className="block px-4 py-2 hover:bg-gray-100">
+                    👤 Profile
+                  </a>
+                  <a href="#settings" className="block px-4 py-2 hover:bg-gray-100">
+                    ⚙️ Settings
+                  </a>
+                  <hr className="my-1" />
+                  <a
+                    href="#logout"
+                    className="block px-4 py-2 text-red-500 flex items-center gap-2 hover:bg-gray-100"
+                  >
+                    <FaSignOutAlt /> Log Out
+                  </a>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      </nav>
+
+      {/* ✅ Sidebar + Content */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        <aside className="hidden md:flex flex-col w-64 bg-white shadow-lg">
+          <div className="flex flex-col gap-2 p-4">
+            {navItems.map((item) => (
+              <Link
+                key={item.label}
+                href={item.href}
+                className={`flex items-center gap-3 p-3 rounded-lg transition ${
+                  pathname === item.href
+                    ? "bg-maroon-600 text-white"
+                    : "text-gray-700 hover:bg-gray-100"
+                }`}
+                style={{
+                  backgroundColor: pathname === item.href ? "#800000" : "transparent",
+                }}
+              >
+                {item.icon} {item.label}
+              </Link>
+            ))}
+          </div>
+        </aside>
+
+        {/* Page Content */}
+        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+      </div>
+    </div>
+  );
+};
+
+export default AdminLayout;

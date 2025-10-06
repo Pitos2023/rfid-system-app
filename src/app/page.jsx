@@ -28,36 +28,43 @@ const LoginPage = () => {
     setSuccess("");
 
     try {
-      // ✅ Query Supabase User table for matching email
-      const { data, error: queryError } = await supabase
-        .from("User")
-        .select("*")
-        .eq("email", email.trim())
-        .single();
+      // ✅ Authenticate using Supabase Auth
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-      if (queryError) {
-        console.error("Supabase query error:", queryError);
-        setError("Login failed. Please check your credentials.");
+      if (signInError) {
+        console.error("Supabase Auth Error:", signInError.message);
+        setError("Invalid email or password.");
         setLoading(false);
         return;
       }
 
-      // ✅ Check if password matches
-      if (data && data.password === password) {
-        console.log("✅ User found:", data);
-        setSuccess("✅ Login successful!");
+      setSuccess("✅ Login successful!");
+      console.log("User:", data.user);
 
-        // Redirect based on role
-        setTimeout(() => {
-          if (data.role === "admin") {
-            router.push("/admin");
-          } else {
-            router.push("/");
-          }
-        }, 1000);
-      } else {
-        setError("Invalid email or password.");
-      }
+      // ✅ Fetch role from 'users' table (fixed table name)
+      const { data: userRow, error: fetchError } = await supabase
+        .from("users")
+        .select("role")
+        .eq("email", email.trim())
+        .single();
+
+      if (fetchError) console.error("Fetch role error:", fetchError.message);
+
+      // Prefer table role; fallback to metadata
+      const role = userRow?.role || data.user?.user_metadata?.role || "user";
+      console.log("User role:", role);
+
+      // ✅ Redirect based on role
+      setTimeout(() => {
+        if (role === "admin") router.push("/admin");
+        else if (role === "assistant_principal") router.push("/assistant");
+        else if (role === "critique") router.push("/critique");
+        else if (role === "parent") router.push("/parent");
+        else router.push("/");
+      }, 1000);
     } catch (err) {
       console.error("Unexpected error:", err);
       setError("Something went wrong. Please try again.");
@@ -93,9 +100,9 @@ const LoginPage = () => {
         >
           <div className="flex flex-col items-center mb-6">
             <FaUserCircle className="w-16 h-16 text-blue-600 mb-2" />
-            <h2 className="text-2xl font-bold text-gray-800">Admin Login</h2>
+            <h2 className="text-2xl font-bold text-gray-800">System Login</h2>
             <p className="text-gray-500 text-sm">
-              Sign in to access the dashboard
+              Sign in to access your dashboard
             </p>
           </div>
 
