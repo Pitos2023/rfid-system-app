@@ -1,58 +1,109 @@
 "use client";
-import { useState } from "react";
-import Image from "next/image"; // ✅ Next.js optimized image
+import { useState, useEffect } from "react";
+import Image from "next/image";
+import { supabase } from "../supabaseClient";
 
-export default function Dashboard() {
-  const [selectedStudent, setSelectedStudent] = useState(null);
+export default function Dashboard({ parentId, user }) {
+  const [students, setStudents] = useState([]); // lightweight list
+  const [selectedStudent, setSelectedStudent] = useState(null); // detailed student object
+  const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false); // when fetching details
 
-  const students = [
-    {
-      id: "2024-09-001",
-      name: "Juan Santos",
-      section: "Grade 9 - Section A",
-      rfid: "RF001234567",
-      dob: "March 15, 2009",
-      email: "juansantos@spc.edu.ph",
-      img: "/inoske.jpg", // ✅ placed inside /public
-      color: "from-blue-400 to-blue-600",
-      contact: "Maria Santos – +63 917 123 4567",
-      activities: [
-        { time: "7:45 AM", icon: "✅", color: "bg-green-100", textColor: "text-green-600" },
-        { time: "12:15 PM", icon: "✅", color: "bg-green-100", textColor: "text-green-600" },
-      ],
-    },
-    {
-      id: "2024-07-002",
-      name: "Ana Santos",
-      section: "Grade 7 - Section B",
-      rfid: "RF001234568",
-      dob: "August 22, 2011",
-      email: "anasantos@spc.edu.ph",
-      img: "/halloween fuyutsi.png", // ✅ placed inside /public
-      color: "from-pink-400 to-pink-600",
-      contact: "Maria Santos – +63 917 123 4567",
-      activities: [
-        { time: "7:52 AM", icon: "✅", color: "bg-green-100", textColor: "text-green-600" },
-        { time: "11:30 AM", icon: "✅", color: "bg-green-100", textColor: "text-green-600" },
-      ],
-    },
-  ];
+  // 🟢 Fetch basic student list (lightweight)
+  useEffect(() => {
+    if (!parentId) return;
+
+    const fetchStudents = async () => {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from("student")
+          .select("id, first_name, last_name, grade_level, section, users_id")
+          .eq("users_id", parentId);
+
+        if (error) {
+          console.error("❌ Error fetching students:", error);
+          setStudents([]);
+        } else {
+          const mappedStudents = (data || []).map((s) => ({
+            id: s.id,
+            name: `${s.first_name || ""} ${s.last_name || ""}`.trim(),
+            grade_level: s.grade_level,
+            sectionShort: s.section,
+            section: `Grade ${s.grade_level || ""} - ${s.section || ""}`.trim(),
+            img: "/inoske.jpg",
+          }));
+          setStudents(mappedStudents);
+        }
+      } catch (err) {
+        console.error("🚨 Unexpected error fetching students:", err);
+        setStudents([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStudents();
+  }, [parentId]);
+
+  // 🟢 Fetch full details only when "View Details" is clicked
+  const fetchStudentDetails = async (studentId) => {
+    setDetailLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("student")
+        .select(`
+          id,
+          first_name,
+          last_name,
+          school_id,
+          grade_level,
+          section,
+          birthdate
+        `)
+        .eq("id", studentId)
+        .single();
+
+      if (error) {
+        console.error("❌ Error fetching student details:", error);
+        setSelectedStudent(null);
+        return;
+      }
+
+      const detailedStudent = {
+        id: data.id,
+        first_name: data.first_name,
+        last_name: data.last_name,
+        name: `${data.first_name || ""} ${data.last_name || ""}`.trim(),
+        school_id: data.school_id || "N/A",
+        grade_level: data.grade_level || "",
+        section: `Grade ${data.grade_level || ""} - ${data.section || ""}`.trim(),
+        dob: data.birthdate || "N/A",
+        img: "/inoske.jpg",
+        rfid: "N/A",
+        email: "",
+        contact: "",
+      };
+
+      setSelectedStudent(detailedStudent);
+    } catch (err) {
+      console.error("🚨 Unexpected error fetching student details:", err);
+      setSelectedStudent(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  if (loading) return <p>Loading students...</p>;
+  if (students.length === 0) return <p>No students assigned to your account.</p>;
 
   return (
     <div id="dashboardView" className="p-6">
-      {/* Stats Cards */}
+      {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <p className="text-gray-600 text-sm font-medium">Total Children</p>
-          <p className="text-3xl font-bold text-gray-800">2</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <p className="text-gray-600 text-sm font-medium">Today's Entries</p>
-          <p className="text-3xl font-bold text-green-600">2</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <p className="text-gray-600 text-sm font-medium">This Week</p>
-          <p className="text-3xl font-bold text-purple-600">14</p>
+          <p className="text-3xl font-bold text-gray-800">{students.length}</p>
         </div>
       </div>
 
@@ -80,27 +131,13 @@ export default function Dashboard() {
                 </div>
               </div>
               <button
-                onClick={() => setSelectedStudent(s)}
+                onClick={() => fetchStudentDetails(s.id)}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
               >
-                View Details
+                {detailLoading && selectedStudent && selectedStudent.id === s.id
+                  ? "Loading..."
+                  : "View Details"}
               </button>
-            </div>
-
-            <div className="p-6 space-y-3">
-              {s.activities.map((a, i) => (
-                <div key={i} className="flex items-center justify-between p-3">
-                  <div className="flex items-center space-x-3">
-                    <div
-                      className={`w-8 h-8 ${a.color} rounded-full flex items-center justify-center`}
-                    >
-                      <span className={`${a.textColor} text-sm`}>{a.icon}</span>
-                    </div>
-                    <p className="text-sm text-gray-600">{a.time}</p>
-                  </div>
-                  <span className="text-xs text-gray-500">Today</span>
-                </div>
-              ))}
             </div>
           </div>
         ))}
@@ -117,52 +154,51 @@ export default function Dashboard() {
               ✕
             </button>
 
-            {/* Header */}
-            <div className="text-center border-b border-gray-100 pb-6">
-              <div className="w-24 h-24 rounded-full mx-auto mb-4 overflow-hidden bg-gray-100">
-                <Image
-                  src={selectedStudent.img}
-                  alt={selectedStudent.name}
-                  width={96}
-                  height={96}
-                  className="object-cover w-full h-full"
-                />
-              </div>
-              <h2 className="text-2xl font-bold">{selectedStudent.name}</h2>
-              <p className="text-gray-600">{selectedStudent.section}</p>
-            </div>
+            {detailLoading ? (
+              <p className="text-center py-8">Loading student details...</p>
+            ) : (
+              <>
+                <div className="text-center border-b border-gray-100 pb-6">
+                  <div className="w-24 h-24 rounded-full mx-auto mb-4 overflow-hidden bg-gray-100">
+                    <Image
+                      src={selectedStudent.img}
+                      alt={selectedStudent.name}
+                      width={96}
+                      height={96}
+                      className="object-cover w-full h-full"
+                    />
+                  </div>
+                  <h2 className="text-2xl font-bold">{selectedStudent.name}</h2>
+                  <p className="text-gray-600">{selectedStudent.section}</p>
+                </div>
 
-            {/* Info */}
-            <div className="mt-6 grid grid-cols-2 gap-6 mb-6">
-              <div>
-                <label className="text-sm font-medium text-gray-500">Student ID</label>
-                <p className="text-gray-800 font-semibold">{selectedStudent.id}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">RFID Tag</label>
-                <p className="text-gray-800 font-semibold">{selectedStudent.rfid}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Date of Birth</label>
-                <p className="text-gray-800 font-semibold">{selectedStudent.dob}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Email</label>
-                <p className="text-gray-800 font-semibold">{selectedStudent.email}</p>
-              </div>
-            </div>
+                <div className="mt-6 grid grid-cols-2 gap-6 mb-6">
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">
+                      Student ID
+                    </label>
+                    <p className="text-gray-800 font-semibold">
+                      {selectedStudent.school_id}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">
+                      Date of Birth
+                    </label>
+                    <p className="text-gray-800 font-semibold">
+                      {selectedStudent.dob}
+                    </p>
+                  </div>
+                </div>
 
-            <div className="mb-6 border-t border-gray-100 pt-4">
-              <label className="text-sm font-medium text-gray-500">Emergency Contact</label>
-              <p className="text-gray-800 font-semibold">{selectedStudent.contact}</p>
-            </div>
-
-            <button
-              onClick={() => setSelectedStudent(null)}
-              className="w-full bg-gray-700 text-white py-3 rounded-lg font-semibold hover:bg-gray-800 transition"
-            >
-              Close
-            </button>
+                <button
+                  onClick={() => setSelectedStudent(null)}
+                  className="w-full bg-gray-700 text-white py-3 rounded-lg font-semibold hover:bg-gray-800 transition"
+                >
+                  Close
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -11,14 +11,23 @@ import {
 import { MdDashboard, MdManageAccounts } from "react-icons/md";
 import { HiOutlineBell, HiMenu, HiX } from "react-icons/hi";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { supabase } from "../supabaseClient";
 
-// ✅ Updated navItems (no double slash)
+// ✅ Navigation items
 const navItems = [
   { icon: <MdDashboard />, label: "Dashboard", href: "/admin" },
-  { icon: <MdManageAccounts />, label: "Student Management", href: "/admin/student-management" },
-  { icon: <FaUsers />, label: "Parent Management", href: "/admin/parent-management" },
-  { icon: <FaFileAlt />, label: "Student Logs", href: "/admin/student-logs" },
+  {
+    icon: <MdManageAccounts />,
+    label: "Student Management",
+    href: "/admin/student-management",
+  },
+  {
+    icon: <FaUsers />,
+    label: "User Management",
+    href: "/admin/parent-management",
+  },
+  { icon: <FaFileAlt />, label: "View Student Logs", href: "/admin/student-logs" },
   { icon: <FaFileAlt />, label: "Reports", href: "/admin/reports" },
 ];
 
@@ -27,8 +36,30 @@ const AdminLayout = ({ children }) => {
   const [openMobileMenu, setOpenMobileMenu] = useState(false);
   const dropdownRef = useRef(null);
   const pathname = usePathname();
+  const router = useRouter();
 
-  // Close dropdown when clicking outside
+  // ✅ Logout function
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      router.push("/"); // redirect to login page
+    } catch (err) {
+      console.error("Logout failed:", err.message);
+      alert("Error logging out. Please try again.");
+    }
+  };
+
+  // ✅ Navigate to profile and settings
+  const handleProfile = () => {
+    router.push("/admin/profile");
+  };
+
+  const handleSettings = () => {
+    router.push("/admin/settings");
+  };
+
+  // ✅ Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -52,7 +83,11 @@ const AdminLayout = ({ children }) => {
             className="md:hidden p-2 rounded-lg hover:bg-white/20 transition"
             onClick={() => setOpenMobileMenu(!openMobileMenu)}
           >
-            {openMobileMenu ? <HiX className="w-6 h-6" /> : <HiMenu className="w-6 h-6" />}
+            {openMobileMenu ? (
+              <HiX className="w-6 h-6" />
+            ) : (
+              <HiMenu className="w-6 h-6" />
+            )}
           </button>
 
           <motion.span
@@ -65,7 +100,7 @@ const AdminLayout = ({ children }) => {
           </motion.span>
         </div>
 
-        {/* Right: Notification + User Dropdown */}
+        {/* ✅ Right: Notification + User Dropdown */}
         <div className="flex items-center gap-4">
           <HiOutlineBell className="w-6 h-6 text-gray-300 cursor-pointer hover:text-white transition-transform duration-300 hover:scale-110" />
 
@@ -86,19 +121,25 @@ const AdminLayout = ({ children }) => {
                   transition={{ duration: 0.2 }}
                   className="absolute right-0 mt-2 w-48 bg-white text-gray-700 rounded-lg shadow-lg z-50"
                 >
-                  <a href="#profile" className="block px-4 py-2 hover:bg-gray-100">
+                  <button
+                    onClick={handleProfile}
+                    className="w-full text-left block px-4 py-2 hover:bg-gray-100"
+                  >
                     👤 Profile
-                  </a>
-                  <a href="#settings" className="block px-4 py-2 hover:bg-gray-100">
+                  </button>
+                  <button
+                    onClick={handleSettings}
+                    className="w-full text-left block px-4 py-2 hover:bg-gray-100"
+                  >
                     ⚙️ Settings
-                  </a>
+                  </button>
                   <hr className="my-1" />
-                  <a
-                    href="#logout"
-                    className="block px-4 py-2 text-red-500 flex items-center gap-2 hover:bg-gray-100"
+                  <button
+                    onClick={handleLogout}
+                    className="w-full text-left block px-4 py-2 text-red-500 flex items-center gap-2 hover:bg-gray-100"
                   >
                     <FaSignOutAlt /> Log Out
-                  </a>
+                  </button>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -121,7 +162,8 @@ const AdminLayout = ({ children }) => {
                     : "text-gray-700 hover:bg-gray-100"
                 }`}
                 style={{
-                  backgroundColor: pathname === item.href ? "#800000" : "transparent",
+                  backgroundColor:
+                    pathname === item.href ? "#800000" : "transparent",
                 }}
               >
                 {item.icon} {item.label}

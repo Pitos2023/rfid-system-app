@@ -19,7 +19,7 @@ const LoginPage = () => {
     e.preventDefault();
 
     if (!email || !password) {
-      setError("Please fill in all fields.");
+      setError("⚠️ Please fill in all fields.");
       return;
     }
 
@@ -28,7 +28,7 @@ const LoginPage = () => {
     setSuccess("");
 
     try {
-      // ✅ Authenticate using Supabase Auth
+      // ✅ Step 1: Authenticate with Supabase Auth
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
@@ -36,41 +36,49 @@ const LoginPage = () => {
 
       if (signInError) {
         console.error("Supabase Auth Error:", signInError.message);
-        setError("Invalid email or password.");
+        setError("❌ Invalid email or password. Please try again.");
         setLoading(false);
         return;
       }
 
-      setSuccess("✅ Login successful!");
-      console.log("User:", data.user);
+      const user = data.user;
+      console.log("✅ Logged in user:", user);
 
-      // ✅ Fetch role from 'users' table (fixed table name)
+      // ✅ Step 2: Fetch user role from 'users' table
       const { data: userRow, error: fetchError } = await supabase
         .from("users")
-        .select("role")
+        .select("role, first_name, last_name")
         .eq("email", email.trim())
         .single();
 
-      if (fetchError) console.error("Fetch role error:", fetchError.message);
+      if (fetchError) {
+        console.error("Error fetching role:", fetchError.message);
+        setError("Could not fetch user role. Please contact admin.");
+        setLoading(false);
+        return;
+      }
 
-      // Prefer table role; fallback to metadata
-      const role = userRow?.role || data.user?.user_metadata?.role || "user";
+      // ✅ Step 3: Determine role
+      const role = userRow?.role?.toLowerCase() || user?.user_metadata?.role || "user";
       console.log("User role:", role);
 
-      // ✅ Redirect based on role
+      setSuccess(`✅ Welcome back, ${userRow?.first_name || "User"}!`);
+      setLoading(false);
+
+      // ✅ Step 4: Redirect based on role
       setTimeout(() => {
         if (role === "admin") router.push("/admin");
         else if (role === "assistant_principal") router.push("/assistant");
         else if (role === "critique") router.push("/critique");
-        else if (role === "parent") router.push("/parent");
+        else if (role === "parent") router.push("/parents");
+        else if (role === "guard") router.push("/guards"); // ✅ go directly to RFID scan page
         else router.push("/");
       }, 1000);
     } catch (err) {
       console.error("Unexpected error:", err);
-      setError("Something went wrong. Please try again.");
+      setError("⚠️ Something went wrong. Please try again.");
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
@@ -137,6 +145,7 @@ const LoginPage = () => {
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
                 placeholder="Enter your email"
+                required
               />
             </div>
 
@@ -152,6 +161,7 @@ const LoginPage = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
                   placeholder="Enter your password"
+                  required
                 />
                 <button
                   type="button"

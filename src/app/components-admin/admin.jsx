@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
-import { FaUserGraduate, FaSignOutAlt } from "react-icons/fa";
+import React, { useState, useEffect } from "react";
+import { FaUserGraduate, FaSignOutAlt, FaClipboardList } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
-import AdminLayout from "../components-admin/AdminLayout"; // adjust path if needed
+import AdminLayout from "../components-admin/AdminLayout";
+import { supabase } from "../supabaseClient";
 
-// Dummy student management component
+// Subcomponent: Student Management Page
 const StudentManagement = ({ onBack }) => {
   return (
     <motion.div
@@ -32,8 +33,69 @@ const StudentManagement = ({ onBack }) => {
   );
 };
 
+// Main Component: Admin Dashboard
 const AdminDashboard = () => {
   const [activePage, setActivePage] = useState("dashboard");
+
+  // Dashboard stats
+  const [totalStudents, setTotalStudents] = useState(0);
+  const [presentToday, setPresentToday] = useState(0);
+  const [lateEntries, setLateEntries] = useState(0);
+  const [earlyExits, setEarlyExits] = useState(0);
+
+  // Logs data
+  const [logs, setLogs] = useState([]);
+
+  // Fetch dashboard stats + logs
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        // Total students
+        const { count: studentCount, error: studentError } = await supabase
+          .from("student")
+          .select("*", { count: "exact", head: true });
+        if (studentError) throw studentError;
+        setTotalStudents(studentCount || 0);
+
+        // Attendance simulation (if you have attendance table)
+        const today = new Date().toISOString().split("T")[0];
+        const { data: attendanceData, error: attendanceError } = await supabase
+          .from("attendance")
+          .select("*")
+          .eq("date", today);
+
+        if (!attendanceError && attendanceData) {
+          const presentCount = attendanceData.filter(
+            (a) => a.status === "present"
+          ).length;
+          const lateCount = attendanceData.filter(
+            (a) => a.status === "late"
+          ).length;
+          const earlyCount = attendanceData.filter(
+            (a) => a.status === "early_exit"
+          ).length;
+
+          setPresentToday(presentCount);
+          setLateEntries(lateCount);
+          setEarlyExits(earlyCount);
+        }
+
+        // Fetch logs from your 'log' table
+        const { data: logsData, error: logsError } = await supabase
+          .from("log")
+          .select("*, student:student_id(id)")
+          .order("time_stamp", { ascending: false })
+          .limit(5);
+
+        if (logsError) throw logsError;
+        setLogs(logsData || []);
+      } catch (err) {
+        console.error("Error fetching dashboard data:", err.message);
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
 
   return (
     <AdminLayout>
@@ -49,63 +111,81 @@ const AdminDashboard = () => {
             >
               {/* Overview Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                {/* Total Students */}
                 <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
                   <div>
                     <p className="text-gray-500">Total Students</p>
-                    <h2 className="text-2xl font-bold">5</h2>
+                    <h2 className="text-2xl font-bold">{totalStudents}</h2>
                   </div>
                   <FaUserGraduate className="w-8 h-8 text-blue-600" />
                 </div>
+
+                {/* Present Today */}
                 <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
                   <div>
                     <p className="text-gray-500">Present Today</p>
-                    <h2 className="text-2xl font-bold">0</h2>
+                    <h2 className="text-2xl font-bold">{presentToday}</h2>
                   </div>
                   <div className="w-8 h-8 bg-green-500 rounded" />
                 </div>
+
+                {/* Late Entries */}
                 <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
                   <div>
                     <p className="text-gray-500">Late Entries</p>
-                    <h2 className="text-2xl font-bold">0</h2>
+                    <h2 className="text-2xl font-bold">{lateEntries}</h2>
                   </div>
                   <div className="w-8 h-8 bg-yellow-500 rounded" />
                 </div>
+
+                {/* Early Exits */}
                 <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
                   <div>
                     <p className="text-gray-500">Early Exits</p>
-                    <h2 className="text-2xl font-bold">0</h2>
+                    <h2 className="text-2xl font-bold">{earlyExits}</h2>
                   </div>
                   <FaSignOutAlt className="w-8 h-8 text-red-500" />
                 </div>
               </div>
 
-              {/* Recent Activity */}
+              {/* Recent Student Activity */}
               <div className="bg-white shadow rounded-lg p-4 mb-6">
-                <h3 className="font-semibold text-gray-700 mb-4">
-                  Recent Student Activity
-                </h3>
-                <ul className="space-y-3 text-sm">
-                  <li className="flex justify-between">
-                    <span>John Smith - Entered at Main Gate</span>
-                    <span className="text-gray-500">4:15:30 PM</span>
-                  </li>
-                  <li className="flex justify-between">
-                    <span>Sarah Johnson - Entered at Main Gate</span>
-                    <span className="text-gray-500">4:45:22 PM</span>
-                  </li>
-                  <li className="flex justify-between">
-                    <span>John Smith - Exited at Main Gate</span>
-                    <span className="text-gray-500">11:30:15 PM</span>
-                  </li>
-                  <li className="flex justify-between">
-                    <span>Emily Davis - Entered at Side Gate</span>
-                    <span className="text-gray-500">3:55:45 PM</span>
-                  </li>
-                  <li className="flex justify-between">
-                    <span>Michael Brown - Entered at Main Gate</span>
-                    <span className="text-gray-500">5:10:30 PM</span>
-                  </li>
-                </ul>
+                <div className="flex items-center gap-2 mb-4">
+                  <FaClipboardList className="text-blue-600" />
+                  <h3 className="font-semibold text-gray-700">
+                    Recent Student Activity
+                  </h3>
+                </div>
+
+                {logs.length > 0 ? (
+                  <ul className="space-y-3 text-sm">
+                    {logs.map((log) => (
+                      <li
+                        key={log.id}
+                        className="flex justify-between border-b border-gray-100 pb-2"
+                      >
+                        <span>
+                          <span className="font-semibold">
+                            {log.student?.name || "Unknown Student"}
+                          </span>{" "}
+                          — logged at{" "}
+                          {new Date(log.time_stamp).toLocaleString()}
+                        </span>
+                        <span
+                          className={`${
+                            log.consent ? "text-green-600" : "text-red-500"
+                          }`}
+                        >
+                          {log.consent ? "✓ Consented" : "✗ No Consent"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-gray-500 text-sm">
+                    No recent activity found.
+                  </p>
+                )}
               </div>
 
               {/* System Status */}
@@ -128,6 +208,7 @@ const AdminDashboard = () => {
             </motion.div>
           )}
 
+          {/* Student Management Page */}
           {activePage === "studentManagement" && (
             <StudentManagement
               key="studentManagement"

@@ -1,3 +1,6 @@
+"use client";
+
+import React from "react";
 import Header from "../components-guards/Header";
 import NotificationToast from "../components-guards/NotificationToast";
 import StatCard from "../components-guards/StatCards";
@@ -6,14 +9,10 @@ import SchoolEvents from "../components-guards/SchoolEvents";
 import SickLeaveList from "../components-guards/SickLeaveList";
 import { stats } from "../components-guards/utils";
 
-
-export default function Page() {
+export default function GuardDashboard() {
   return (
     <div className="min-h-screen bg-white text-black">
-      {/* Toast */}
       <NotificationToast />
-
-      {/* Header */}
       <Header />
 
       <main className="p-6 pt-4">
@@ -26,10 +25,7 @@ export default function Page() {
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Activity Log (takes 2 cols) */}
           <ActivityLog />
-
-          {/* Sidebar */}
           <div className="space-y-6">
             <SchoolEvents />
             <SickLeaveList />
