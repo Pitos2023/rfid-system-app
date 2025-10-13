@@ -1,6 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 
-// Server-side Supabase client with service key
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
@@ -8,17 +7,14 @@ const supabase = createClient(
 
 export async function POST(req) {
   try {
-    const body = await req.json();
-    const { card_number, consent = false } = body;
+    const { card_number, consent = false } = await req.json();
 
-    if (!card_number) {
-      return new Response(
-        JSON.stringify({ error: "card_number is required" }),
-        { status: 400 }
-      );
-    }
+    if (!card_number)
+      return new Response(JSON.stringify({ error: "card_number is required" }), {
+        status: 400,
+      });
 
-    // ✅ Find card by card_number
+    // Find or create RFID card
     let { data: cardData, error: cardError } = await supabase
       .from("rfid_card")
       .select("id, student_id")
@@ -27,22 +23,20 @@ export async function POST(req) {
 
     if (cardError) throw cardError;
 
-    // ✅ If card not found, create it
     if (!cardData) {
-      const { data: newCard, error: newCardErr } = await supabase
+      const { data: newCard, error: newCardError } = await supabase
         .from("rfid_card")
         .insert({ card_number })
         .select("id, student_id")
         .maybeSingle();
 
-      if (newCardErr) throw newCardErr;
+      if (newCardError) throw newCardError;
       cardData = newCard;
     }
 
-    // ✅ Determine action: time-in or time-out
+    // Determine action: time-in / time-out
     let action = "time-in";
-
-    const { data: lastLog, error: lastLogErr } = await supabase
+    const { data: lastLog } = await supabase
       .from("log")
       .select("*")
       .eq("rfid_card_id", cardData.id)
@@ -50,60 +44,47 @@ export async function POST(req) {
       .limit(1)
       .maybeSingle();
 
-    if (lastLogErr) throw lastLogErr;
     if (lastLog && lastLog.action === "time-in") action = "time-out";
 
-    // ✅ Timestamp in Philippine timezone
+    // Insert log
     const now = new Date();
-    const philippineTime = new Date(now.getTime() + 8 * 60 * 60 * 1000); // UTC+8
+    const philippineTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
     const isoTime = philippineTime.toISOString();
 
-    // ✅ Insert log
-    const { data: log, error: logErr } = await supabase
+    const { data: newLog, error: logError } = await supabase
       .from("log")
       .insert({
         rfid_card_id: cardData.id,
         action,
         consent,
         time_stamp: isoTime,
-        issue_at: isoTime, // satisfies NOT NULL
+        issue_at: isoTime,
       })
       .select("*")
       .maybeSingle();
 
-    if (logErr) throw logErr;
+    if (logError) throw logError;
 
-    // ✅ Fetch student info
+    // Fetch student info via the RFID card
     let student = null;
     if (cardData.student_id) {
-      const { data: s, error: sErr } = await supabase
+      const { data: s, error: studentError } = await supabase
         .from("student")
         .select("id, first_name, last_name, grade_level, section")
         .eq("id", cardData.student_id)
         .maybeSingle();
-      if (!sErr) student = s;
+      if (studentError) throw studentError;
+      student = s;
     }
 
-    // ✅ Fetch full log with rfid_card relation
-    const { data: fullLog, error: fullLogErr } = await supabase
-      .from("log")
-      .select("id, action, consent, time_stamp, rfid_card(card_number)")
-      .eq("id", log.id)
-      .maybeSingle();
+    // ✅ Attach student to log for frontend use
+    const logWithStudent = { ...newLog, student };
 
-    if (fullLogErr) throw fullLogErr;
-
-    return new Response(
-      JSON.stringify({ log: fullLog, student }),
-      { status: 200 }
-    );
+    return new Response(JSON.stringify({ log: logWithStudent }), { status: 200 });
   } catch (err) {
     console.error("RFID scan error:", err);
     return new Response(
-      JSON.stringify({
-        error: "Server error",
-        details: err.message || JSON.stringify(err),
-      }),
+      JSON.stringify({ error: "Server error", details: err.message }),
       { status: 500 }
     );
   }

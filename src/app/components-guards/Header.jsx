@@ -1,11 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "../supabaseClient"; // adjust the path if needed
 
 export default function Header() {
   const [time, setTime] = useState("--:--:--");
   const [date, setDate] = useState("Loading...");
+  const [officer, setOfficer] = useState("Loading...");
+  const router = useRouter();
 
+  // 🕒 Update time & date every second
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
@@ -26,10 +31,42 @@ export default function Header() {
         })
       );
     };
+
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // 👮‍♂️ Fetch logged-in user's first & last name
+  useEffect(() => {
+    const getUser = async () => {
+      const { data, error } = await supabase.auth.getUser();
+
+      if (error || !data.user) {
+        router.push("/"); // redirect if not logged in
+      } else {
+        const metadata = data.user.user_metadata || {};
+
+        // Combine first and last name if available
+        const firstName = metadata.first_name || "";
+        const lastName = metadata.last_name || "";
+        const fullName =
+          (firstName || lastName)
+            ? `${firstName} ${lastName}`.trim()
+            : data.user.email || "Officer";
+
+        setOfficer(fullName);
+      }
+    };
+
+    getUser();
+  }, [router]);
+
+  // 🚪 Logout handler
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/");
+  };
 
   return (
     <header className="bg-[#58181F] border-b border-gray-200">
@@ -52,11 +89,19 @@ export default function Header() {
             <div className="text-sm text-white">{date}</div>
           </div>
 
-          {/* Officer */}
+          {/* Officer Info */}
           <div className="text-right">
             <div className="text-sm text-white">Security Officer</div>
-            <div className="font-bold text-white text-lg">Rodriguez</div>
+            <div className="font-bold text-white text-lg">{officer}</div>
           </div>
+
+          {/* Logout Button */}
+          <button
+            onClick={handleLogout}
+            className="bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 rounded-lg transition"
+          >
+            Logout
+          </button>
         </div>
       </div>
     </header>

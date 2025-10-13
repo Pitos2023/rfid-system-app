@@ -1,28 +1,49 @@
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Server-side Supabase client with service key
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
 export async function GET() {
   try {
-    // Fetch last 50 logs along with student info
+    // Join through RFID card → student
     const { data: logs, error } = await supabase
       .from("log")
-      .select("id, action, consent, time_stamp, rfid_card(student(*))")
-      .order("time_stamp", { ascending: false })
-      .limit(50);
+      .select(`
+        id,
+        time_stamp,
+        action,
+        consent,
+        rfid_card:rfid_card_id (
+          id,
+          card_number,
+          student:student_id (
+            id,
+            first_name,
+            last_name,
+            grade_level,
+            section
+          )
+        )
+      `)
+      .order("time_stamp", { ascending: false });
 
     if (error) {
-      console.error("Error fetching logs:", error);
-      return new Response(JSON.stringify({ logs: [] }), { status: 500 });
+      console.error("🔴 Supabase error:", error);
+      return NextResponse.json({ logs: [], error: error.message }, { status: 500 });
     }
 
-    return new Response(JSON.stringify({ logs }), { status: 200 });
+    // ✅ Flatten nested structure for frontend compatibility
+    const flattenedLogs = logs.map((log) => ({
+      ...log,
+      student: log.rfid_card?.student || null,
+    }));
+
+    return NextResponse.json({ logs: flattenedLogs });
   } catch (err) {
-    console.error("Unexpected error:", err);
-    return new Response(JSON.stringify({ logs: [] }), { status: 500 });
+    console.error("🔴 Server error:", err);
+    return NextResponse.json({ logs: [], error: err.message }, { status: 500 });
   }
 }

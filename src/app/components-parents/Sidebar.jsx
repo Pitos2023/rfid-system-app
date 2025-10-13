@@ -1,19 +1,39 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function Sidebar({ currentView, setView }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const navItems = [
     { id: "dashboard", label: "📊 Dashboard" },
-    { id: "students", label: "👨‍👩‍👧 My Children" },
-    { id: "activity", label: "📜 Activity Log" },
+    { id: "activity", label: "📜 View All Activity" },
     { id: "notifications", label: "🔔 Notifications", badge: 3 },
     { id: "profile", label: "👤 Profile" },
   ];
+
+  // Load current view from URL (?view=dashboard)
+  useEffect(() => {
+    const viewFromUrl = searchParams.get("view");
+    if (viewFromUrl) {
+      setView(viewFromUrl);
+    } else {
+      // Default to dashboard if no view in URL
+      setView("dashboard");
+      router.replace("?view=dashboard");
+    }
+  }, [searchParams, setView, router]);
+
+  // When view changes, update URL
+  useEffect(() => {
+    if (currentView) {
+      const newUrl = `?view=${currentView}`;
+      router.replace(newUrl); // replace() so it won't stack history
+    }
+  }, [currentView, router]);
 
   // Logout function
   const handleLogout = async () => {
@@ -68,6 +88,7 @@ export default function Sidebar({ currentView, setView }) {
                   onClick={() => {
                     setView(item.id);
                     setSidebarOpen(false);
+                    router.replace(`?view=${item.id}`);
                   }}
                   className={`w-full flex items-center justify-between px-4 py-3 rounded-lg transition-colors ${
                     currentView === item.id
@@ -99,7 +120,6 @@ export default function Sidebar({ currentView, setView }) {
             </div>
           </div>
 
-          {/* Logout Button */}
           <button
             onClick={handleLogout}
             className="w-full px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition"

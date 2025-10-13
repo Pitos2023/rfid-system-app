@@ -16,7 +16,7 @@ export default function Students({ setView, user }) {
       const { data, error } = await supabase
         .from("student")
         .select("*")
-        .eq("parent_id", user.id);
+        .eq("users_id", user.id);
 
       if (error) {
         console.error("Error fetching students:", error);
@@ -60,7 +60,7 @@ export default function Students({ setView, user }) {
                 className={`w-24 h-24 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow overflow-hidden`}
               >
                 <Image
-                  src={s.img || "/default-student.png"}
+                  src={s.img || "/inoske.jpg"}
                   alt={s.first_name}
                   width={96}
                   height={96}

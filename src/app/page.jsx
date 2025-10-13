@@ -83,20 +83,6 @@ const LoginPage = () => {
 
   return (
     <div className="flex flex-col h-screen bg-gray-100">
-      {/* Navbar */}
-      <nav
-        className="w-full text-white flex items-center justify-between px-6 py-4 shadow"
-        style={{ backgroundColor: "#800000" }}
-      >
-        <motion.span
-          className="text-lg font-bold"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-        >
-          School Admin
-        </motion.span>
-      </nav>
 
       {/* Main Login Form */}
       <main className="flex-1 flex items-center justify-center px-4">
@@ -187,7 +173,6 @@ const LoginPage = () => {
 
           <div className="mt-4 text-center text-sm text-gray-500">
             <a href="#" className="hover:text-blue-600">
-              Forgot Password?
             </a>
           </div>
         </motion.div>

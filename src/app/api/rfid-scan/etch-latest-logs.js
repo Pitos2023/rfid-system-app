@@ -4,7 +4,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 export default async function handler(req, res) {
   const { data, error } = await supabase
     .from("log")
-    .select("*, students(first_name, last_name, grade_level)")
+    .select("*, student(first_name, last_name, grade_level, section)")
     .order("time_stamp", { ascending: false })
     .limit(10);
 
