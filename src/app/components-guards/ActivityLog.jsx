@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function ActivityLog() {
   const [logs, setLogs] = useState([]);
@@ -23,7 +23,12 @@ export default function ActivityLog() {
     }
   };
 
-  // ✅ RFID scan handler
+  // ✅ Load logs when page loads
+  useEffect(() => {
+    fetchLogs();
+  }, []);
+
+  // ✅ Handle RFID scan
   const handleScan = async (e) => {
     e.preventDefault();
     if (!cardNumber.trim()) return;
@@ -36,11 +41,13 @@ export default function ActivityLog() {
         body: JSON.stringify({ card_number: cardNumber }),
       });
 
-      const text = await res.text();
-      const data = text ? JSON.parse(text) : {};
+      const data = await res.json();
 
       if (data.success) {
-        await fetchLogs(); // fetch logs only after successful scan
+        // ⏳ Small delay to allow DB trigger to complete joins
+        await new Promise((r) => setTimeout(r, 300));
+        // ✅ Fetch the full logs again (so student info appears)
+        await fetchLogs();
       } else if (data.error) {
         alert(data.error);
       }
@@ -54,27 +61,20 @@ export default function ActivityLog() {
     }
   };
 
-  // ✅ Filters
+  // ✅ Apply filters
   const now = new Date();
   const filteredLogs = logs.filter((log) => {
     const logDate = new Date(log.time_stamp);
-    if (filter === "today") {
-      return logDate.toDateString() === now.toDateString();
-    } else if (filter === "week") {
-      const diff = (now - logDate) / (1000 * 60 * 60 * 24);
-      return diff <= 7;
-    } else if (filter === "month") {
-      return (
-        logDate.getMonth() === now.getMonth() &&
-        logDate.getFullYear() === now.getFullYear()
-      );
-    }
+    if (filter === "today") return logDate.toDateString() === now.toDateString();
+    if (filter === "week") return (now - logDate) / (1000 * 60 * 60 * 24) <= 7;
+    if (filter === "month")
+      return logDate.getMonth() === now.getMonth() && logDate.getFullYear() === now.getFullYear();
     return true;
   });
 
   return (
     <div className="lg:col-span-2 bg-white border border-gray-200 rounded-xl shadow-sm">
-      {/* Header with filter buttons */}
+      {/* Header */}
       <div className="p-6 border-b border-gray-200 flex justify-between items-center">
         <h3 className="text-2xl font-bold text-black">RFID Activity Log</h3>
         <div className="flex space-x-2">
@@ -114,7 +114,7 @@ export default function ActivityLog() {
         </form>
       </div>
 
-      {/* Table of Logs */}
+      {/* Logs Table */}
       <div className="p-6 overflow-x-auto">
         {loading ? (
           <p className="text-gray-500 text-sm text-center py-6">Loading logs...</p>
@@ -126,21 +126,11 @@ export default function ActivityLog() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Student
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Date & Time
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Grade & Section
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Action
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Consent
-                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Student</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Date & Time</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Grade & Section</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Action</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Consent</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">

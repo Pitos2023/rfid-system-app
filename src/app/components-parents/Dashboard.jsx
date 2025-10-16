@@ -1,7 +1,9 @@
 "use client";
+
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { supabase } from "../supabaseClient";
+import { requestPermissionAndGetToken } from "../firebase";
 
 export default function Students({ user }) {
   const [students, setStudents] = useState([]);
@@ -10,9 +12,43 @@ export default function Students({ user }) {
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const intervalRef = useRef(null);
 
-  // ✅ Fetch all students for this user (parent)
+  // ✅ Show custom popup for notifications on first login
+  useEffect(() => {
+    if (typeof window !== "undefined" && user?.id) {
+      const alreadyAsked = localStorage.getItem("notifPromptShown");
+      if (!alreadyAsked) {
+        setShowNotifPrompt(true);
+      }
+    }
+  }, [user]);
+
+  // ✅ Handle user click on “Allow Notifications”
+  const handleAllowNotifications = async () => {
+    setShowNotifPrompt(false);
+    localStorage.setItem("notifPromptShown", "true");
+
+    const token = await requestPermissionAndGetToken();
+    if (token) {
+      const { error } = await supabase
+        .from("student")
+        .update({ fcm_token: token })
+        .eq("users_id", user.id);
+
+      if (error) console.error("❌ Failed to save token:", error);
+      else console.log("✅ FCM token saved:", token);
+    }
+  };
+
+  // ✅ Handle “Ignore”
+  const handleIgnoreNotifications = () => {
+    setShowNotifPrompt(false);
+    localStorage.setItem("notifPromptShown", "true");
+  };
+
+  // ✅ Fetch all students
   useEffect(() => {
     const fetchStudents = async () => {
       if (!user?.id) return;
@@ -47,7 +83,6 @@ export default function Students({ user }) {
         console.error("Error fetching logs:", error);
         setStudentLogs([]);
       } else {
-        // Filter logs belonging to this student
         const filtered = logs.filter(
           (log) => log.student && log.student.id === studentId
         );
@@ -61,19 +96,16 @@ export default function Students({ user }) {
     }
   };
 
-  // ✅ When user clicks “View Activity Log”
   const handleViewLogs = async (student) => {
     setSelectedStudent(student);
     await fetchStudentLogs(student.id);
     setShowModal(true);
 
-    // Auto-refresh every 5 seconds
     intervalRef.current = setInterval(() => {
       fetchStudentLogs(student.id);
     }, 5000);
   };
 
-  // ✅ Close modal and stop polling
   const closeModal = () => {
     setShowModal(false);
     setSelectedStudent(null);
@@ -98,13 +130,13 @@ export default function Students({ user }) {
 
   return (
     <div id="studentsView" className="p-6">
+      {/* 🧩 Students */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {students.map((s) => (
           <div
             key={s.id}
             className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition"
           >
-            {/* HEADER */}
             <div className="p-8 text-center border-b border-gray-100 bg-gradient-to-b from-gray-50 to-white">
               <div className="w-24 h-24 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow overflow-hidden">
                 <Image
@@ -123,7 +155,6 @@ export default function Students({ user }) {
               </p>
             </div>
 
-            {/* DETAILS */}
             <div className="p-7">
               <div className="grid grid-cols-2 gap-6 mb-6">
                 <div>
@@ -155,88 +186,30 @@ export default function Students({ user }) {
         ))}
       </div>
 
-      {/* ✅ MODAL for Logs */}
-      {showModal && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50"
-          onClick={closeModal}
-        >
-          <div
-            className="bg-white rounded-xl w-full max-w-4xl p-6 shadow-lg overflow-y-auto max-h-[80vh]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center border-b pb-3">
-              <h2 className="text-lg font-semibold text-gray-800">
-                {selectedStudent?.first_name} {selectedStudent?.last_name} — Activity Log
-              </h2>
+      {/* 🧩 Custom notification popup */}
+      {showNotifPrompt && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-8 w-[90%] max-w-md text-center">
+            <h2 className="text-xl font-semibold mb-4 text-gray-800">
+              Enable Notifications?
+            </h2>
+            <p className="text-gray-600 mb-6">
+              Would you like to receive notifications when your student scans in or out?
+            </p>
+            <div className="flex justify-center gap-4">
               <button
-                onClick={closeModal}
-                className="text-gray-500 hover:text-gray-800 text-2xl"
+                onClick={handleAllowNotifications}
+                className="bg-green-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-700 transition"
               >
-                &times;
+                Allow Notifications
+              </button>
+              <button
+                onClick={handleIgnoreNotifications}
+                className="bg-gray-300 text-gray-700 px-6 py-2 rounded-lg font-semibold hover:bg-gray-400 transition"
+              >
+                Ignore
               </button>
             </div>
-
-            {loadingLogs ? (
-              <p className="text-center text-gray-500 py-6">Loading logs...</p>
-            ) : studentLogs.length > 0 ? (
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full border">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">
-                        Student
-                      </th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">
-                        Date & Time
-                      </th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">
-                        Grade & Section
-                      </th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">
-                        Action
-                      </th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">
-                        Consent
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {studentLogs.map((log) => (
-                      <tr key={log.id} className="border-t hover:bg-gray-50">
-                        <td className="px-4 py-2 text-sm font-semibold text-gray-800">
-                          {log.student?.first_name} {log.student?.last_name}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-700">
-                          {new Date(log.time_stamp).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-600">
-                          Grade {log.student?.grade_level} - {log.student?.section}
-                        </td>
-                        <td
-                          className={`px-4 py-2 text-sm font-semibold ${
-                            log.action?.toLowerCase() === "time-in"
-                              ? "text-green-600"
-                              : "text-red-600"
-                          }`}
-                        >
-                          {log.action?.toLowerCase()}
-                        </td>
-                        <td className="px-4 py-2 text-sm">
-                          {log.consent ? (
-                            <span className="text-green-600 font-medium">✔ Yes</span>
-                          ) : (
-                            <span className="text-red-600 font-medium">✖ No</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-gray-600 mt-4 text-center">No logs found.</p>
-            )}
           </div>
         </div>
       )}

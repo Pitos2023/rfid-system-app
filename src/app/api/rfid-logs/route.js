@@ -51,11 +51,11 @@ export async function POST(req) {
         rfid_card:rfid_card_id (
           student:student_id (
             id,
+            users_id,
             first_name,
             last_name,
             grade_level,
-            section,
-            parent_id
+            section
           )
         )
       `)
@@ -63,16 +63,16 @@ export async function POST(req) {
 
     if (error) throw error;
 
-    // 🔹 Send FCM to parent
-    const parentId = newLog.rfid_card?.student?.parent_id;
+    // 🔹 Send FCM to parent (using users_id from student)
+    const parentId = newLog.rfid_card?.student?.users_id;
     if (parentId) {
-      const { data: parentToken } = await supabase
-        .from("parent_tokens")
-        .select("fcm_token")
-        .eq("parent_id", parentId)
+      const { data: parent } = await supabase
+        .from("users")
+        .select("fcm_token, first_name, last_name")
+        .eq("id", parentId)
         .maybeSingle();
 
-      if (parentToken?.fcm_token) {
+      if (parent?.fcm_token) {
         const student = newLog.rfid_card.student;
         const title = `RFID Scan - ${
           action === "time_in" ? "Time In" : "Time Out"
@@ -81,7 +81,7 @@ export async function POST(req) {
           action === "time_in" ? "entered" : "left"
         } school.`;
 
-        await sendPushNotification(parentToken.fcm_token, title, body);
+        await sendPushNotification(parent.fcm_token, title, body);
       }
     }
 
@@ -108,6 +108,7 @@ export async function GET() {
         rfid_card:rfid_card_id (
           student:student_id (
             id,
+            users_id,
             first_name,
             last_name,
             grade_level,
@@ -119,8 +120,8 @@ export async function GET() {
 
     if (error) throw error;
 
-    // Flatten for frontend
-    const logs = data.map((log) => ({
+    // 🔹 Flatten for frontend
+    const logs = (data || []).map((log) => ({
       id: log.id,
       time_stamp: log.time_stamp,
       action: log.action,
