@@ -123,7 +123,7 @@ const LoginPage = () => {
           {/* FORM */}
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email */}
-            <div>
+            <div className="text-black">
               <label className="block text-gray-600 text-sm mb-1">Email</label>
               <input
                 type="email"
@@ -140,7 +140,7 @@ const LoginPage = () => {
               <label className="block text-gray-600 text-sm mb-1">
                 Password
               </label>
-              <div className="relative">
+              <div className="relative text-black">
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}

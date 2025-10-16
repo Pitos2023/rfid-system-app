@@ -1,52 +1,60 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { FaUserGraduate, FaSignOutAlt, FaClipboardList } from "react-icons/fa";
+import { FaUserGraduate, FaClipboardList } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import AdminLayout from "../components-admin/AdminLayout";
 import { supabase } from "../supabaseClient";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from "recharts";
 
 // Subcomponent: Student Management Page
-const StudentManagement = ({ onBack }) => {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 15 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 15 }}
-      transition={{ duration: 0.3 }}
-      className="bg-white p-6 rounded-lg shadow-lg"
+const StudentManagement = ({ onBack }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 15 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: 15 }}
+    transition={{ duration: 0.3 }}
+    className="bg-white p-6 rounded-lg shadow-lg"
+  >
+    <h2 className="text-2xl font-semibold text-gray-800 mb-4">
+      👩‍🎓 Student Management
+    </h2>
+    <p className="text-gray-600 mb-6">
+      This is where you can manage student records, attendance, and related data.
+    </p>
+    <button
+      onClick={onBack}
+      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
     >
-      <h2 className="text-2xl font-semibold text-gray-800 mb-4">
-        👩‍🎓 Student Management
-      </h2>
-      <p className="text-gray-600 mb-6">
-        This is where you can manage student records, attendance, and related
-        data.
-      </p>
-      <button
-        onClick={onBack}
-        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-      >
-        ← Back to Dashboard
-      </button>
-    </motion.div>
-  );
-};
+      ← Back to Dashboard
+    </button>
+  </motion.div>
+);
 
-// Main Component: Admin Dashboard
 const AdminDashboard = () => {
   const [activePage, setActivePage] = useState("dashboard");
 
   // Dashboard stats
   const [totalStudents, setTotalStudents] = useState(0);
-  const [presentToday, setPresentToday] = useState(0);
-  const [lateEntries, setLateEntries] = useState(0);
-  const [earlyExits, setEarlyExits] = useState(0);
+  const [totalUsers, setTotalUsers] = useState(0);
+  const [totalActivity, setTotalActivity] = useState(0);
 
-  // Logs data
+  // Logs and chart data
   const [logs, setLogs] = useState([]);
+  const [lineData, setLineData] = useState([]);
 
-  // Fetch dashboard stats + logs
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
@@ -57,38 +65,44 @@ const AdminDashboard = () => {
         if (studentError) throw studentError;
         setTotalStudents(studentCount || 0);
 
-        // Attendance simulation (if you have attendance table)
-        const today = new Date().toISOString().split("T")[0];
-        const { data: attendanceData, error: attendanceError } = await supabase
-          .from("attendance")
-          .select("*")
-          .eq("date", today);
+        // Total users
+        const { count: usersCount, error: usersError } = await supabase
+          .from("users")
+          .select("*", { count: "exact", head: true });
+        if (usersError) throw usersError;
+        setTotalUsers(usersCount || 0);
 
-        if (!attendanceError && attendanceData) {
-          const presentCount = attendanceData.filter(
-            (a) => a.status === "present"
-          ).length;
-          const lateCount = attendanceData.filter(
-            (a) => a.status === "late"
-          ).length;
-          const earlyCount = attendanceData.filter(
-            (a) => a.status === "early_exit"
-          ).length;
-
-          setPresentToday(presentCount);
-          setLateEntries(lateCount);
-          setEarlyExits(earlyCount);
-        }
-
-        // Fetch logs from your 'log' table
-        const { data: logsData, error: logsError } = await supabase
-          .from("log")
-          .select("*, student:student_id(id)")
-          .order("time_stamp", { ascending: false })
-          .limit(5);
-
+        // Fetch all logs
+        const { count: logsCount, data: logsData, error: logsError } =
+          await supabase.from("log").select("id, time_stamp", { count: "exact" });
         if (logsError) throw logsError;
+        setTotalActivity(logsCount || 0);
         setLogs(logsData || []);
+
+        // Prepare line chart data: Today / This Week / This Month
+        if (logsData && logsData.length > 0) {
+          const todayStr = new Date().toISOString().split("T")[0];
+
+          const todayCount = logsData.filter(log => log.time_stamp.startsWith(todayStr)).length;
+
+          const startOfWeek = new Date();
+          startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+          const weekCount = logsData.filter(
+            log => new Date(log.time_stamp) >= startOfWeek
+          ).length;
+
+          const startOfMonth = new Date();
+          startOfMonth.setDate(1);
+          const monthCount = logsData.filter(
+            log => new Date(log.time_stamp) >= startOfMonth
+          ).length;
+
+          setLineData([
+            { period: "Today", count: todayCount },
+            { period: "This Week", count: weekCount },
+            { period: "This Month", count: monthCount },
+          ]);
+        }
       } catch (err) {
         console.error("Error fetching dashboard data:", err.message);
       }
@@ -96,6 +110,14 @@ const AdminDashboard = () => {
 
     fetchDashboardData();
   }, []);
+
+  // Pie chart data
+  const pieData = [
+    { name: "Total Students", value: totalStudents },
+    { name: "Total Users", value: totalUsers },
+    
+  ];
+  const pieColors = ["#3b82f6", "#22c55e", "#facc15"];
 
   return (
     <AdminLayout>
@@ -111,7 +133,6 @@ const AdminDashboard = () => {
             >
               {/* Overview Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                {/* Total Students */}
                 <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
                   <div>
                     <p className="text-gray-500">Total Students</p>
@@ -120,95 +141,84 @@ const AdminDashboard = () => {
                   <FaUserGraduate className="w-8 h-8 text-blue-600" />
                 </div>
 
-                {/* Present Today */}
                 <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
                   <div>
-                    <p className="text-gray-500">Present Today</p>
-                    <h2 className="text-2xl font-bold">{presentToday}</h2>
+                    <p className="text-gray-500">Total Users</p>
+                    <h2 className="text-2xl font-bold">{totalUsers}</h2>
                   </div>
                   <div className="w-8 h-8 bg-green-500 rounded" />
                 </div>
 
-                {/* Late Entries */}
                 <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
                   <div>
-                    <p className="text-gray-500">Late Entries</p>
-                    <h2 className="text-2xl font-bold">{lateEntries}</h2>
+                    <p className="text-gray-500">Total Activity</p>
+                    <h2 className="text-2xl font-bold">{totalActivity}</h2>
                   </div>
                   <div className="w-8 h-8 bg-yellow-500 rounded" />
                 </div>
-
-                {/* Early Exits */}
-                <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-gray-500">Early Exits</p>
-                    <h2 className="text-2xl font-bold">{earlyExits}</h2>
-                  </div>
-                  <FaSignOutAlt className="w-8 h-8 text-red-500" />
-                </div>
               </div>
 
-              {/* Recent Student Activity */}
+              {/* Pie Chart */}
               <div className="bg-white shadow rounded-lg p-4 mb-6">
                 <div className="flex items-center gap-2 mb-4">
                   <FaClipboardList className="text-blue-600" />
-                  <h3 className="font-semibold text-gray-700">
-                    Recent Student Activity
-                  </h3>
+                  <h3 className="font-semibold text-gray-700">Dashboard Overview</h3>
                 </div>
-
-                {logs.length > 0 ? (
-                  <ul className="space-y-3 text-sm">
-                    {logs.map((log) => (
-                      <li
-                        key={log.id}
-                        className="flex justify-between border-b border-gray-100 pb-2"
-                      >
-                        <span>
-                          <span className="font-semibold">
-                            {log.student?.name || "Unknown Student"}
-                          </span>{" "}
-                          — logged at{" "}
-                          {new Date(log.time_stamp).toLocaleString()}
-                        </span>
-                        <span
-                          className={`${
-                            log.consent ? "text-green-600" : "text-red-500"
-                          }`}
+                {(totalStudents + totalUsers + totalActivity) > 0 ? (
+                  <div style={{ width: "100%", height: 250 }}>
+                    <ResponsiveContainer>
+                      <PieChart>
+                        <Pie
+                          data={pieData}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={80}
+                          label
                         >
-                          {log.consent ? "✓ Consented" : "✗ No Consent"}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                          {pieData.map((entry, index) => (
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={pieColors[index % pieColors.length]}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                        <Legend verticalAlign="bottom" height={36} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
                 ) : (
-                  <p className="text-gray-500 text-sm">
-                    No recent activity found.
-                  </p>
+                  <p className="text-gray-500 text-center">No data available.</p>
                 )}
               </div>
 
-              {/* System Status */}
-              <div className="bg-white shadow rounded-lg p-4">
-                <h3 className="font-semibold text-gray-700 mb-4">
-                  System Status
-                </h3>
-                <div className="flex flex-wrap gap-6 text-sm">
-                  <span className="flex items-center gap-2 text-green-600">
-                    🟢 RFID System: Online
-                  </span>
-                  <span className="flex items-center gap-2 text-green-600">
-                    🟢 Database: Connected
-                  </span>
-                  <span className="flex items-center gap-2 text-yellow-500">
-                    🟡 Notifications: Limited
-                  </span>
+              {/* Line Chart for Activity Today / This Week / This Month */}
+              <div className="bg-white shadow rounded-lg p-4 mb-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <FaClipboardList className="text-yellow-600" />
+                  <h3 className="font-semibold text-gray-700">Total Activity</h3>
                 </div>
+                {lineData.length > 0 ? (
+                  <div style={{ width: "100%", height: 300 }}>
+                    <ResponsiveContainer>
+                      <LineChart data={lineData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="period" />
+                        <YAxis />
+                        <Tooltip />
+                        <Line type="monotone" dataKey="count" stroke="#facc15" strokeWidth={3} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-center">No activity data.</p>
+                )}
               </div>
             </motion.div>
           )}
 
-          {/* Student Management Page */}
           {activePage === "studentManagement" && (
             <StudentManagement
               key="studentManagement"

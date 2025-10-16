@@ -1,36 +1,32 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 export default function ActivityLog() {
   const [logs, setLogs] = useState([]);
   const [cardNumber, setCardNumber] = useState("");
   const [scanning, setScanning] = useState(false);
   const [filter, setFilter] = useState("today");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  // ✅ Fetch logs with joined student data
+  // ✅ Fetch logs from API
   const fetchLogs = async () => {
     try {
       setLoading(true);
       const res = await fetch("/api/rfid-logs");
-      const data = await res.json();
-      setLogs(data.logs || []);
+      const json = await res.json();
+      setLogs(json.logs || []);
     } catch (err) {
-      console.error("Error fetching logs:", err);
+      console.error("❌ Error fetching logs:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchLogs();
-  }, []);
-
-  // ✅ Handle RFID scanning
+  // ✅ RFID scan handler
   const handleScan = async (e) => {
     e.preventDefault();
-    if (!cardNumber) return;
+    if (!cardNumber.trim()) return;
 
     setScanning(true);
     try {
@@ -40,19 +36,25 @@ export default function ActivityLog() {
         body: JSON.stringify({ card_number: cardNumber }),
       });
 
-      const data = await res.json();
-      if (data.log) {
-        setLogs((prev) => [data.log, ...prev]);
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
+
+      if (data.success) {
+        await fetchLogs(); // fetch logs only after successful scan
+      } else if (data.error) {
+        alert(data.error);
       }
+
       setCardNumber("");
     } catch (err) {
+      console.error("Error scanning:", err);
       alert("Error scanning: " + err.message);
     } finally {
       setScanning(false);
     }
   };
 
-  // ✅ Filter logic
+  // ✅ Filters
   const now = new Date();
   const filteredLogs = logs.filter((log) => {
     const logDate = new Date(log.time_stamp);
@@ -62,14 +64,17 @@ export default function ActivityLog() {
       const diff = (now - logDate) / (1000 * 60 * 60 * 24);
       return diff <= 7;
     } else if (filter === "month") {
-      return logDate.getMonth() === now.getMonth() && logDate.getFullYear() === now.getFullYear();
+      return (
+        logDate.getMonth() === now.getMonth() &&
+        logDate.getFullYear() === now.getFullYear()
+      );
     }
     return true;
   });
 
   return (
     <div className="lg:col-span-2 bg-white border border-gray-200 rounded-xl shadow-sm">
-      {/* Header */}
+      {/* Header with filter buttons */}
       <div className="p-6 border-b border-gray-200 flex justify-between items-center">
         <h3 className="text-2xl font-bold text-black">RFID Activity Log</h3>
         <div className="flex space-x-2">
@@ -89,7 +94,7 @@ export default function ActivityLog() {
         </div>
       </div>
 
-      {/* Scan Form */}
+      {/* RFID Scan Input */}
       <div className="p-6 border-b border-gray-200">
         <form onSubmit={handleScan} className="flex gap-3">
           <input
@@ -109,7 +114,7 @@ export default function ActivityLog() {
         </form>
       </div>
 
-      {/* Table */}
+      {/* Table of Logs */}
       <div className="p-6 overflow-x-auto">
         {loading ? (
           <p className="text-gray-500 text-sm text-center py-6">Loading logs...</p>
@@ -121,26 +126,33 @@ export default function ActivityLog() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Student</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Date & Time</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Grade & Section</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Action</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Consent</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                  Student
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                  Date & Time
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                  Grade & Section
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                  Action
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                  Consent
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
               {filteredLogs.map((log) => (
                 <tr key={log.id}>
-                  {/* Student Name */}
                   <td className="px-4 py-3">
                     <p className="font-semibold text-black">
-                      {log.student?.first_name && log.student?.last_name
+                      {log.student
                         ? `${log.student.first_name} ${log.student.last_name}`
                         : "Unknown Student"}
                     </p>
                   </td>
-
-                  {/* Date & Time */}
                   <td className="px-4 py-3">
                     <p className="text-sm text-black">
                       {new Date(log.time_stamp).toLocaleDateString("en-US", {
@@ -156,18 +168,18 @@ export default function ActivityLog() {
                       })}
                     </p>
                   </td>
-
-                  {/* Grade & Section */}
                   <td className="px-4 py-3 text-sm text-gray-800">
                     {log.student
                       ? `${log.student.grade_level || "-"} - ${log.student.section || "-"}`
                       : "-"}
                   </td>
-
-                  {/* Action */}
-                  <td className="px-4 py-3 font-semibold text-green-600">{log.action || "-"}</td>
-
-                  {/* Consent */}
+                  <td
+                    className={`px-4 py-3 font-semibold ${
+                      log.action === "time-in" ? "text-green-600" : "text-red-600"
+                    }`}
+                  >
+                    {log.action || "-"}
+                  </td>
                   <td className="px-4 py-3">
                     <span
                       className={`font-semibold ${
