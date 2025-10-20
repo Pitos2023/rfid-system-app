@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { supabase } from "../supabaseClient";
-import { requestPermissionAndGetToken } from "../firebase";
 
 export default function Students({ user }) {
   const [students, setStudents] = useState([]);
@@ -23,23 +22,52 @@ export default function Students({ user }) {
         setShowNotifPrompt(true);
       }
     }
-  }, [user]);
+  }, [user?.id]);
+
+  // register OneSignal and save player id to users table
+  const registerOneSignal = async () => {
+    if (typeof window === "undefined" || !user?.id) return;
+
+    if (!window.OneSignal) {
+      const s = document.createElement("script");
+      s.src = "https://cdn.onesignal.com/sdks/OneSignalSDK.js";
+      s.async = true;
+      document.head.appendChild(s);
+      await new Promise((res) => (s.onload = res));
+    }
+
+    window.OneSignal = window.OneSignal || [];
+    window.OneSignal.push(function () {
+      window.OneSignal.init({
+        appId: process.env.NEXT_PUBLIC_ONE_SIGNAL_APP_ID,
+        allowLocalhostAsSecureOrigin: true,
+      });
+
+      // show native prompt if available
+      if (window.OneSignal.showNativePrompt) window.OneSignal.showNativePrompt();
+
+      // get (or wait for) player id and save to users table
+      window.OneSignal.getUserId(async function (playerId) {
+        if (!playerId) return;
+        try {
+          const { error } = await supabase
+            .from("users")
+            .update({ onesignal_player_id: playerId })
+            .eq("id", user.id);
+          if (error) console.error("❌ Failed to save OneSignal player id:", error);
+          else console.log("✅ Saved OneSignal player id:", playerId);
+        } catch (err) {
+          console.error("❌ Error saving player id:", err);
+        }
+      });
+    });
+  };
 
   // ✅ Handle user click on “Allow Notifications”
   const handleAllowNotifications = async () => {
     setShowNotifPrompt(false);
     localStorage.setItem("notifPromptShown", "true");
-
-    const token = await requestPermissionAndGetToken();
-    if (token) {
-      const { error } = await supabase
-        .from("student")
-        .update({ fcm_token: token })
-        .eq("users_id", user.id);
-
-      if (error) console.error("❌ Failed to save token:", error);
-      else console.log("✅ FCM token saved:", token);
-    }
+    await registerOneSignal();
   };
 
   // ✅ Handle “Ignore”

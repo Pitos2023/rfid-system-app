@@ -6,57 +6,37 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ✅ Firebase Cloud Messaging Server Key
-const FIREBASE_SERVER_KEY = process.env.FIREBASE_SERVER_KEY;
+// ✅ OneSignal config
+const ONESIGNAL_APP_ID = process.env.ONE_SIGNAL_APP_ID;
+const ONESIGNAL_REST_KEY = process.env.ONE_SIGNAL_REST_KEY;
 
-// ✅ Utility: Send push notification to parent
-async function sendPushNotification(token, title, body) {
-  if (!token) {
-    console.warn("⚠️ No FCM token provided, skipping notification.");
-    return { success: false, message: "Missing FCM token" };
-  }
-
-  if (!FIREBASE_SERVER_KEY) {
-    console.error("❌ FIREBASE_SERVER_KEY is missing in .env");
-    return { success: false, message: "Missing Firebase server key" };
-  }
+// ✅ Utility: Send OneSignal push to a specific player id
+async function sendOneSignalNotification(playerId, title, body, data = {}) {
+  if (!playerId) return;
 
   try {
-    const res = await fetch("https://fcm.googleapis.com/fcm/send", {
+    await fetch("https://onesignal.com/api/v1/notifications", {
       method: "POST",
       headers: {
-        Authorization: `key=${FIREBASE_SERVER_KEY}`,
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+        Authorization: `Basic ${ONESIGNAL_REST_KEY}`,
       },
       body: JSON.stringify({
-        to: token,
-        notification: {
-          title,
-          body,
-          icon: "/icon.png",
-          click_action: "/", // optional: open site on click
-        },
+        app_id: ONESIGNAL_APP_ID,
+        include_player_ids: [playerId],
+        headings: { en: title },
+        contents: { en: body },
+        data,
       }),
     });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("❌ FCM failed:", errText);
-      return { success: false, error: errText };
-    }
-
-    console.log(`📱 Push sent successfully to token: ${token}`);
-    return { success: true };
   } catch (err) {
-    console.error("❌ FCM send error:", err);
-    return { success: false, error: err.message };
+    console.error("❌ OneSignal send error:", err);
   }
 }
 
 export async function POST(req) {
   try {
     const { card_number, consent = false } = await req.json();
-
     const cleanCard = String(card_number).trim();
     if (!cleanCard) {
       return new Response(
@@ -67,7 +47,7 @@ export async function POST(req) {
 
     console.log("🔹 Scanned card:", cleanCard);
 
-    // ✅ Step 1: Check or create RFID card record
+    // ✅ Step 1: Get RFID card
     let { data: cardData, error: cardError } = await supabase
       .from("rfid_card")
       .select("id, student_id, card_number")
@@ -77,37 +57,32 @@ export async function POST(req) {
     if (cardError && cardError.code !== "PGRST116") throw cardError;
 
     if (!cardData) {
-      console.log("🆕 Creating new RFID card:", cleanCard);
-      const { data: newCard, error: newCardError } = await supabase
+      const { data: newCard } = await supabase
         .from("rfid_card")
         .insert([{ card_number: cleanCard }])
         .select("id, student_id, card_number")
         .single();
-
-      if (newCardError) throw newCardError;
       cardData = newCard;
     }
 
-    // ✅ Step 2: Determine time-in or time-out
+    // ✅ Step 2: Determine time-in / time-out
     let action = "time-in";
-    const { data: lastLog, error: lastLogError } = await supabase
+    const { data: lastLog } = await supabase
       .from("log")
-      .select("action, time_stamp")
+      .select("action")
       .eq("rfid_card_id", cardData.id)
       .order("time_stamp", { ascending: false })
       .limit(1)
       .single();
 
-    if (lastLogError && lastLogError.code !== "PGRST116") throw lastLogError;
     if (lastLog?.action === "time-in") action = "time-out";
 
-    // ✅ Step 3: Use Philippine Time (UTC+8)
+    // ✅ Step 3: Insert log
     const now = new Date();
     const philippineTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
     const isoTime = philippineTime.toISOString();
 
-    // ✅ Step 4: Insert log
-    const { data: newLog, error: logError } = await supabase
+    const { data: newLog } = await supabase
       .from("log")
       .insert([
         {
@@ -116,35 +91,28 @@ export async function POST(req) {
           consent,
           time_stamp: isoTime,
           issue_at: isoTime,
+          student_id: cardData.student_id,
         },
       ])
       .select("*")
       .single();
 
-    if (logError) throw logError;
+    // ✅ Step 4: Get student + parent info
+    const { data: student } = await supabase
+      .from("student")
+      .select("id, first_name, last_name, users_id")
+      .eq("id", cardData.student_id)
+      .single();
 
-    // ✅ Step 5: Fetch student info
-    let student = null;
-    if (cardData.student_id) {
-      const { data: s, error: studentError } = await supabase
-        .from("student")
-        .select("id, first_name, last_name, grade_level, section, parent_id")
-        .eq("id", cardData.student_id)
-        .single();
-
-      if (!studentError) student = s;
-    }
-
-    // ✅ Step 6: Fetch parent and send FCM
-    if (student?.parent_id) {
-      const { data: parent, error: parentError } = await supabase
+    if (student?.users_id) {
+      const { data: parent } = await supabase
         .from("users")
-        .select("first_name, last_name, fcm_token")
-        .eq("id", student.parent_id)
+        .select("id, first_name, onesignal_player_id")
+        .eq("id", student.users_id)
         .eq("role", "parent")
         .single();
 
-      if (!parentError && parent?.fcm_token) {
+      if (parent) {
         const title =
           action === "time-in"
             ? `Time In: ${student.first_name} ${student.last_name}`
@@ -155,26 +123,40 @@ export async function POST(req) {
             ? `${student.first_name} has entered the school.`
             : `${student.first_name} has left the school.`;
 
-        await sendPushNotification(parent.fcm_token, title, body);
+        // ✅ Step 5: Insert into notifications table
+        await supabase.from("notifications").insert([
+          {
+            user_id: parent.id,
+            title,
+            message: body,
+            type: "info",
+            is_read: false,
+            created_at: isoTime,
+          },
+        ]);
+
+        console.log("✅ Notification inserted for parent", parent.id);
+
+        // ✅ Step 6: Send OneSignal push
+        if (parent.onesignal_player_id) {
+          await sendOneSignalNotification(
+            parent.onesignal_player_id,
+            title,
+            body,
+            { student_id: student.id, action }
+          );
+        }
       }
     }
 
-    console.log(`✅ Recorded ${action} for card ${cleanCard}`);
-
     return new Response(
-      JSON.stringify({
-        success: true,
-        log: { ...newLog, student },
-      }),
+      JSON.stringify({ success: true, log: newLog }),
       { status: 200 }
     );
   } catch (err) {
     console.error("❌ RFID scan error:", err);
     return new Response(
-      JSON.stringify({
-        success: false,
-        error: err.message || "Server error",
-      }),
+      JSON.stringify({ success: false, error: err.message }),
       { status: 500 }
     );
   }

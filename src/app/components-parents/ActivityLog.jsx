@@ -37,8 +37,7 @@ export default function ActivityLog({ user }) {
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-md">
-      <h2 className="text-2xl font-bold mb-2">Student RFID Activity Log</h2>
-      <p className="text-gray-500 mb-4">Complete entry and exit history</p>
+
 
       <div className="flex gap-2 mb-4">
         {["today", "week", "month"].map((f) => (

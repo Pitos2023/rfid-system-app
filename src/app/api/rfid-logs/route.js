@@ -3,35 +3,41 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_KEY // use service key on server to bypass RLS for inserts
 );
 
-const FIREBASE_SERVER_KEY = process.env.FIREBASE_SERVER_KEY;
+const ONESIGNAL_APP_ID = process.env.ONE_SIGNAL_APP_ID;
+const ONESIGNAL_REST_KEY = process.env.ONE_SIGNAL_REST_KEY;
 
-// ✅ Function to send push notification via Firebase Cloud Messaging
-async function sendPushNotification(token, title, body) {
+// send OneSignal notification to a single player id
+async function sendOneSignalNotification(playerId, title, body, data = {}) {
+  if (!playerId || !ONESIGNAL_APP_ID || !ONESIGNAL_REST_KEY) return { success: false };
+
   try {
-    const response = await fetch("https://fcm.googleapis.com/fcm/send", {
+    const res = await fetch("https://onesignal.com/api/v1/notifications", {
       method: "POST",
       headers: {
-        Authorization: `key=${FIREBASE_SERVER_KEY}`,
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+        Authorization: `Basic ${ONESIGNAL_REST_KEY}`,
       },
       body: JSON.stringify({
-        to: token,
-        notification: {
-          title,
-          body,
-          icon: "/icon.png",
-        },
+        app_id: ONESIGNAL_APP_ID,
+        include_player_ids: [playerId],
+        headings: { en: title },
+        contents: { en: body },
+        data,
       }),
     });
 
-    if (!response.ok) {
-      console.error("Failed to send FCM:", await response.text());
+    const json = await res.json();
+    if (!res.ok) {
+      console.error("OneSignal error:", json);
+      return { success: false, error: json };
     }
+    return { success: true, result: json };
   } catch (err) {
-    console.error("FCM Error:", err);
+    console.error("OneSignal send error:", err);
+    return { success: false, error: err.message };
   }
 }
 
@@ -55,7 +61,8 @@ export async function POST(req) {
             first_name,
             last_name,
             grade_level,
-            section
+            section,
+            parent_id
           )
         )
       `)
@@ -63,25 +70,63 @@ export async function POST(req) {
 
     if (error) throw error;
 
-    // 🔹 Send FCM to parent (using users_id from student)
-    const parentId = newLog.rfid_card?.student?.users_id;
+    // find parent id (support both users_id and parent_id fields)
+    const student = newLog.rfid_card?.student || null;
+    const parentId = student?.users_id || student?.parent_id || null;
+
     if (parentId) {
-      const { data: parent } = await supabase
-        .from("users")
-        .select("fcm_token, first_name, last_name")
-        .eq("id", parentId)
-        .maybeSingle();
+      // Insert notification row targeted to the parent
+      try {
+        const title = action === "time_in" || action === "time-in" ? `Time In: ${student.first_name}` : `Time Out: ${student.first_name}`;
+        const body = action === "time_in" || action === "time-in"
+          ? `${student.first_name} ${student.last_name} has entered school.`
+          : `${student.first_name} ${student.last_name} has left school.`;
 
-      if (parent?.fcm_token) {
-        const student = newLog.rfid_card.student;
-        const title = `RFID Scan - ${
-          action === "time_in" ? "Time In" : "Time Out"
-        }`;
-        const body = `${student.first_name} ${student.last_name} has ${
-          action === "time_in" ? "entered" : "left"
-        } school.`;
+        const { error: notifError } = await supabase.from("notifications").insert([
+          {
+            user_id: parentId,
+            title,
+            message: body,
+            type: "info",
+            is_read: false,
+            metadata: {
+              student_id: student.id,
+              action,
+              rfid_card_id,
+            },
+          },
+        ]);
 
-        await sendPushNotification(parent.fcm_token, title, body);
+        if (notifError) {
+          console.error("Failed to insert notification row:", notifError);
+        }
+      } catch (err) {
+        console.error("Error inserting notification row:", err);
+      }
+
+      // Attempt OneSignal push if parent has player id
+      try {
+        const { data: parent } = await supabase
+          .from("users")
+          .select("onesignal_player_id")
+          .eq("id", parentId)
+          .maybeSingle();
+
+        if (parent?.onesignal_player_id) {
+          const title = action === "time_in" || action === "time-in" ? `Time In: ${student.first_name}` : `Time Out: ${student.first_name}`;
+          const body = action === "time_in" || action === "time-in"
+            ? `${student.first_name} ${student.last_name} has entered school.`
+            : `${student.first_name} ${student.last_name} has left school.`;
+
+          await sendOneSignalNotification(parent.onesignal_player_id, title, body, {
+            student_id: student.id,
+            action,
+          });
+        } else {
+          console.log("Parent has no OneSignal player id; only DB notification inserted.");
+        }
+      } catch (err) {
+        console.error("Error fetching parent/OneSignal id:", err);
       }
     }
 
@@ -95,7 +140,7 @@ export async function POST(req) {
   }
 }
 
-// ✅ GET — Fetch logs for frontend
+// ✅ GET — Fetch logs for frontend (kept using service key here)
 export async function GET() {
   try {
     const { data, error } = await supabase
@@ -120,7 +165,6 @@ export async function GET() {
 
     if (error) throw error;
 
-    // 🔹 Flatten for frontend
     const logs = (data || []).map((log) => ({
       id: log.id,
       time_stamp: log.time_stamp,

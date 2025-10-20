@@ -5,37 +5,60 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 export default function Sidebar({ currentView, setView }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [user, setUser] = useState(null); // store parent info
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // ✅ Navigation items
   const navItems = [
     { id: "dashboard", label: "📊 Dashboard" },
     { id: "activity", label: "📜 View All Activity" },
-    { id: "notifications", label: "🔔 Notifications", badge: 3 },
-    { id: "profile", label: "👤 Profile" },
   ];
 
-  // Load current view from URL (?view=dashboard)
+  // ✅ Load current view from URL (?view=dashboard)
   useEffect(() => {
     const viewFromUrl = searchParams.get("view");
     if (viewFromUrl) {
       setView(viewFromUrl);
     } else {
-      // Default to dashboard if no view in URL
       setView("dashboard");
       router.replace("?view=dashboard");
     }
   }, [searchParams, setView, router]);
 
-  // When view changes, update URL
+  // ✅ Update URL when currentView changes
   useEffect(() => {
     if (currentView) {
       const newUrl = `?view=${currentView}`;
-      router.replace(newUrl); // replace() so it won't stack history
+      router.replace(newUrl);
     }
   }, [currentView, router]);
 
-  // Logout function
+  // ✅ Load logged-in parent info
+  useEffect(() => {
+    const fetchUser = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.user) {
+        const { data, error } = await supabase
+          .from("users") // adjust this table name to your parent table
+          .select("first_name, last_name")
+          .eq("id", session.user.id)
+          .single();
+
+        if (error) {
+          console.error("Error fetching user info:", error);
+        } else {
+          setUser(data);
+        }
+      }
+    };
+    fetchUser();
+  }, []);
+
+  // ✅ Logout function
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) {
@@ -55,15 +78,17 @@ export default function Sidebar({ currentView, setView }) {
         ></div>
       )}
 
+      {/* Sidebar */}
       <div
         className={`fixed lg:static top-0 left-0 h-full w-64 bg-[#58181F] text-white flex flex-col
         transform transition-transform duration-300 z-50
-        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}
+        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0
+        pt-6 lg:pt-0`} // ✅ add top padding for mobile
       >
-        {/* Logo + Close button */}
+        {/* Header (Logo + Close Button) */}
         <div className="p-6 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-xl">
               🎓
             </div>
             <div>
@@ -79,7 +104,7 @@ export default function Sidebar({ currentView, setView }) {
           </button>
         </div>
 
-        {/* Nav */}
+        {/* Navigation Menu */}
         <nav className="flex-1 p-4">
           <ul className="space-y-2">
             {navItems.map((item) => (
@@ -97,11 +122,6 @@ export default function Sidebar({ currentView, setView }) {
                   }`}
                 >
                   <span>{item.label}</span>
-                  {item.badge && (
-                    <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
-                      {item.badge}
-                    </span>
-                  )}
                 </button>
               </li>
             ))}
@@ -115,7 +135,9 @@ export default function Sidebar({ currentView, setView }) {
               👩
             </div>
             <div>
-              <p className="font-medium">Maria Santos</p>
+              <p className="font-medium">
+                {user ? `${user.first_name} ${user.last_name}` : "Parent"}
+              </p>
               <p className="text-gray-200 text-sm">Parent Account</p>
             </div>
           </div>

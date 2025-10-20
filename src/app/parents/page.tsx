@@ -8,7 +8,6 @@ import Dashboard from "../components-parents/Dashboard";
 import Students from "../components-parents/Students";
 import ActivityLog from "../components-parents/ActivityLog";
 import Notifications from "../components-parents/Notifications";
-import Profile from "../components-parents/Profile";
 import { supabase } from "../supabaseClient";
 
 export default function ParentPage() {
@@ -53,10 +52,6 @@ export default function ParentPage() {
         return <ActivityLog setView={setCurrentView} user={user} />;
       case "notifications":
         return <Notifications user={user} />;
-      case "profile":
-        return <Profile user={user} />;
-      default:
-        return <Dashboard user={user} parentId={user.id} />;
     }
   };
 

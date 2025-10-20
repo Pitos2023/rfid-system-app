@@ -136,7 +136,7 @@ const AdminDashboard = () => {
                 <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
                   <div>
                     <p className="text-gray-500">Total Students</p>
-                    <h2 className="text-2xl font-bold">{totalStudents}</h2>
+                    <h2 className="text-2xl text-black font-bold">{totalStudents}</h2>
                   </div>
                   <FaUserGraduate className="w-8 h-8 text-blue-600" />
                 </div>
@@ -144,7 +144,7 @@ const AdminDashboard = () => {
                 <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
                   <div>
                     <p className="text-gray-500">Total Users</p>
-                    <h2 className="text-2xl font-bold">{totalUsers}</h2>
+                    <h2 className="text-2xl font-bold text-black">{totalUsers}</h2>
                   </div>
                   <div className="w-8 h-8 bg-green-500 rounded" />
                 </div>
@@ -152,7 +152,7 @@ const AdminDashboard = () => {
                 <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
                   <div>
                     <p className="text-gray-500">Total Activity</p>
-                    <h2 className="text-2xl font-bold">{totalActivity}</h2>
+                    <h2 className="text-2xl text-black font-bold">{totalActivity}</h2>
                   </div>
                   <div className="w-8 h-8 bg-yellow-500 rounded" />
                 </div>
