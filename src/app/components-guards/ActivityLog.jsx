@@ -8,6 +8,8 @@ export default function ActivityLog() {
   const [scanning, setScanning] = useState(false);
   const [filter, setFilter] = useState("today");
   const [loading, setLoading] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [scannedStudent, setScannedStudent] = useState(null);
 
   // ✅ Fetch logs from API
   const fetchLogs = async () => {
@@ -44,10 +46,26 @@ export default function ActivityLog() {
       const data = await res.json();
 
       if (data.success) {
-        // ⏳ Small delay to allow DB trigger to complete joins
+        // Wait briefly for database updates
         await new Promise((r) => setTimeout(r, 300));
-        // ✅ Fetch the full logs again (so student info appears)
         await fetchLogs();
+
+        // ✅ Fetch student details (based on log student_id)
+        const log = data.log;
+        if (log?.student_id) {
+          const studentRes = await fetch(`/api/get-student?id=${log.student_id}`);
+          if (!studentRes.ok) {
+            console.error("❌ Failed to fetch student:", studentRes.status);
+            return;
+          }
+
+          const studentJson = await studentRes.json();
+          if (studentJson?.student) {
+            setScannedStudent(studentJson.student);
+            setShowModal(true);
+            setTimeout(() => setShowModal(false), 4000); // Auto-close in 4s
+          }
+        }
       } else if (data.error) {
         alert(data.error);
       }
@@ -68,12 +86,37 @@ export default function ActivityLog() {
     if (filter === "today") return logDate.toDateString() === now.toDateString();
     if (filter === "week") return (now - logDate) / (1000 * 60 * 60 * 24) <= 7;
     if (filter === "month")
-      return logDate.getMonth() === now.getMonth() && logDate.getFullYear() === now.getFullYear();
+      return (
+        logDate.getMonth() === now.getMonth() &&
+        logDate.getFullYear() === now.getFullYear()
+      );
     return true;
   });
 
   return (
-    <div className="lg:col-span-2 bg-white border border-gray-200 rounded-xl shadow-sm">
+    <div className="relative lg:col-span-2 bg-white border border-gray-200 rounded-xl shadow-sm">
+      {/* ✅ MODAL: Enlarged student info */}
+      {showModal && scannedStudent && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 w-[420px] sm:w-[500px] text-center transform transition-all animate-fadeIn scale-105">
+            <img
+              src={scannedStudent.student_pic || "/default-avatar.png"}
+              alt="Student"
+              className="w-36 h-36 mx-auto rounded-full object-cover mb-4 border-4 border-[#58181F]"
+            />
+            <h2 className="text-2xl font-bold text-gray-900">
+              {scannedStudent.first_name} {scannedStudent.last_name}
+            </h2>
+            <p className="text-gray-600 text-base mt-1">
+              {scannedStudent.grade_level} - {scannedStudent.section}
+            </p>
+            <p className="text-gray-700 mt-4 font-medium text-lg">
+              ✅ Successfully Scanned!
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="p-6 border-b border-gray-200 flex justify-between items-center">
         <h3 className="text-2xl font-bold text-black">RFID Activity Log</h3>
@@ -126,23 +169,45 @@ export default function ActivityLog() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Student</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Date & Time</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Grade & Section</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Action</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Consent</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                  Student
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                  Date & Time
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                  Grade & Section
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                  Action
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                  Consent
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
               {filteredLogs.map((log) => (
                 <tr key={log.id}>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 flex items-center gap-3">
+                    {log.student?.student_pic ? (
+                      <img
+                        src={log.student.student_pic}
+                        alt="Student"
+                        className="w-10 h-10 rounded-full object-cover border"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-sm">
+                        N/A
+                      </div>
+                    )}
                     <p className="font-semibold text-black">
                       {log.student
                         ? `${log.student.first_name} ${log.student.last_name}`
                         : "Unknown Student"}
                     </p>
                   </td>
+
                   <td className="px-4 py-3">
                     <p className="text-sm text-black">
                       {new Date(log.time_stamp).toLocaleDateString("en-US", {
@@ -158,11 +223,15 @@ export default function ActivityLog() {
                       })}
                     </p>
                   </td>
+
                   <td className="px-4 py-3 text-sm text-gray-800">
                     {log.student
-                      ? `${log.student.grade_level || "-"} - ${log.student.section || "-"}`
+                      ? `${log.student.grade_level || "-"} - ${
+                          log.student.section || "-"
+                        }`
                       : "-"}
                   </td>
+
                   <td
                     className={`px-4 py-3 font-semibold ${
                       log.action === "time-in" ? "text-green-600" : "text-red-600"
@@ -170,6 +239,7 @@ export default function ActivityLog() {
                   >
                     {log.action || "-"}
                   </td>
+
                   <td className="px-4 py-3">
                     <span
                       className={`font-semibold ${

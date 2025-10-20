@@ -38,6 +38,7 @@ export async function POST(req) {
   try {
     const { card_number, consent = false } = await req.json();
     const cleanCard = String(card_number).trim();
+
     if (!cleanCard) {
       return new Response(
         JSON.stringify({ success: false, error: "card_number is required" }),
@@ -77,7 +78,7 @@ export async function POST(req) {
 
     if (lastLog?.action === "time-in") action = "time-out";
 
-    // ✅ Step 3: Insert log
+    // ✅ Step 3: Insert new log
     const now = new Date();
     const philippineTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
     const isoTime = philippineTime.toISOString();
@@ -97,10 +98,10 @@ export async function POST(req) {
       .select("*")
       .single();
 
-    // ✅ Step 4: Get student + parent info
+    // ✅ Step 4: Get student + parent info (WITH student image)
     const { data: student } = await supabase
       .from("student")
-      .select("id, first_name, last_name, users_id")
+      .select("id, first_name, last_name, student_pic, grade_level, section, users_id")
       .eq("id", cardData.student_id)
       .single();
 
@@ -123,7 +124,7 @@ export async function POST(req) {
             ? `${student.first_name} has entered the school.`
             : `${student.first_name} has left the school.`;
 
-        // ✅ Step 5: Insert into notifications table
+        // ✅ Step 5: Insert notification record
         await supabase.from("notifications").insert([
           {
             user_id: parent.id,
@@ -149,8 +150,20 @@ export async function POST(req) {
       }
     }
 
+    // ✅ Step 7: Return response with student details + image (for modal)
     return new Response(
-      JSON.stringify({ success: true, log: newLog }),
+      JSON.stringify({
+        success: true,
+        log: newLog,
+        student: {
+          id: student?.id,
+          first_name: student?.first_name,
+          last_name: student?.last_name,
+          grade_level: student?.grade_level,
+          section: student?.section,
+          student_pic: student?.student_pic || null, // ✅ added image
+        },
+      }),
       { status: 200 }
     );
   } catch (err) {

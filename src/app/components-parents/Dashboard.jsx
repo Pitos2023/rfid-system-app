@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import Image from "next/image";
 import { supabase } from "../supabaseClient";
 
 export default function Students({ user }) {
@@ -24,7 +23,7 @@ export default function Students({ user }) {
     }
   }, [user?.id]);
 
-  // register OneSignal and save player id to users table
+  // ✅ Register OneSignal and save player ID
   const registerOneSignal = async () => {
     if (typeof window === "undefined" || !user?.id) return;
 
@@ -43,10 +42,8 @@ export default function Students({ user }) {
         allowLocalhostAsSecureOrigin: true,
       });
 
-      // show native prompt if available
       if (window.OneSignal.showNativePrompt) window.OneSignal.showNativePrompt();
 
-      // get (or wait for) player id and save to users table
       window.OneSignal.getUserId(async function (playerId) {
         if (!playerId) return;
         try {
@@ -54,7 +51,8 @@ export default function Students({ user }) {
             .from("users")
             .update({ onesignal_player_id: playerId })
             .eq("id", user.id);
-          if (error) console.error("❌ Failed to save OneSignal player id:", error);
+          if (error)
+            console.error("❌ Failed to save OneSignal player id:", error);
           else console.log("✅ Saved OneSignal player id:", playerId);
         } catch (err) {
           console.error("❌ Error saving player id:", err);
@@ -70,13 +68,12 @@ export default function Students({ user }) {
     await registerOneSignal();
   };
 
-  // ✅ Handle “Ignore”
   const handleIgnoreNotifications = () => {
     setShowNotifPrompt(false);
     localStorage.setItem("notifPromptShown", "true");
   };
 
-  // ✅ Fetch all students
+  // ✅ Fetch all students (updated: now includes student_pic)
   useEffect(() => {
     const fetchStudents = async () => {
       if (!user?.id) return;
@@ -84,7 +81,9 @@ export default function Students({ user }) {
 
       const { data, error } = await supabase
         .from("student")
-        .select("id, first_name, last_name, school_id, grade_level, section, birthdate")
+        .select(
+          "id, first_name, last_name, school_id, grade_level, section, birthdate, student_pic"
+        )
         .eq("users_id", user.id);
 
       if (error) {
@@ -129,6 +128,7 @@ export default function Students({ user }) {
     await fetchStudentLogs(student.id);
     setShowModal(true);
 
+    // auto-refresh logs every 5 seconds
     intervalRef.current = setInterval(() => {
       fetchStudentLogs(student.id);
     }, 5000);
@@ -140,6 +140,7 @@ export default function Students({ user }) {
     clearInterval(intervalRef.current);
   };
 
+  // ✅ UI
   if (loadingStudents)
     return (
       <div className="flex justify-center items-center h-[70vh]">
@@ -167,13 +168,17 @@ export default function Students({ user }) {
           >
             <div className="p-8 text-center border-b border-gray-100 bg-gradient-to-b from-gray-50 to-white">
               <div className="w-24 h-24 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow overflow-hidden">
-                <Image
-                  src={"/inoske.jpg"}
-                  alt={s.first_name}
-                  width={96}
-                  height={96}
-                  className="object-cover w-full h-full"
-                />
+                {s.student_pic ? (
+                  <img
+                    src={s.student_pic}
+                    alt={`${s.first_name} ${s.last_name}`}
+                    className="object-cover w-full h-full"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-300 text-sm bg-gray-100">
+                    No Image
+                  </div>
+                )}
               </div>
               <h3 className="text-2xl font-bold text-gray-800">
                 {s.first_name} {s.last_name}
@@ -214,7 +219,60 @@ export default function Students({ user }) {
         ))}
       </div>
 
-      {/* 🧩 Custom notification popup */}
+      {/* 🧩 Modal for logs */}
+      {showModal && selectedStudent && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-2xl p-6 relative">
+            <button
+              onClick={closeModal}
+              className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-2xl"
+            >
+              ×
+            </button>
+
+            <h2 className="text-2xl font-bold mb-4 text-center text-gray-800">
+              {selectedStudent.first_name} {selectedStudent.last_name} — Logs
+            </h2>
+
+            {loadingLogs ? (
+              <p className="text-center text-gray-500">Loading logs...</p>
+            ) : studentLogs.length === 0 ? (
+              <p className="text-center text-gray-500">
+                No logs found for this student.
+              </p>
+            ) : (
+              <div className="max-h-[60vh] overflow-y-auto divide-y divide-gray-100">
+                {studentLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="flex justify-between items-center py-3"
+                  >
+                    <div>
+                      <p className="font-semibold text-gray-800 capitalize">
+                        {log.action.replace("_", " ")}
+                      </p>
+                      <p className="text-gray-500 text-sm">
+                        {new Date(log.time_stamp).toLocaleString()}
+                      </p>
+                    </div>
+                    <span
+                      className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                        log.action.includes("in")
+                          ? "bg-green-100 text-green-700"
+                          : "bg-red-100 text-red-700"
+                      }`}
+                    >
+                      {log.action.includes("in") ? "IN" : "OUT"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 🧩 Notification popup */}
       {showNotifPrompt && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl p-8 w-[90%] max-w-md text-center">
@@ -222,7 +280,8 @@ export default function Students({ user }) {
               Enable Notifications?
             </h2>
             <p className="text-gray-600 mb-6">
-              Would you like to receive notifications when your student scans in or out?
+              Would you like to receive notifications when your student scans in
+              or out?
             </p>
             <div className="flex justify-center gap-4">
               <button
