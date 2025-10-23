@@ -14,7 +14,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "../supabaseClient";
 
-// ✅ Navigation items
+// ✅ Navigation items without Reports
 const navItems = [
   { icon: <MdDashboard />, label: "Dashboard", href: "/admin" },
   {
@@ -28,7 +28,6 @@ const navItems = [
     href: "/admin/parent-management",
   },
   { icon: <FaFileAlt />, label: "View Student Logs", href: "/admin/student-logs" },
-  { icon: <FaFileAlt />, label: "Reports", href: "/admin/reports" },
 ];
 
 const AdminLayout = ({ children }) => {
@@ -102,12 +101,12 @@ const AdminLayout = ({ children }) => {
 
         {/* ✅ Right: Notification + User Dropdown */}
         <div className="flex items-center gap-4">
-          <HiOutlineBell className="w-6 h-6 text-gray-300 cursor-pointer hover:text-white transition-transform duration-300 hover:scale-110" />
+          <HiOutlineBell className="w-6 h-6 text-white cursor-pointer hover:text-gray-300 transition-transform duration-300 hover:scale-110" />
 
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setOpenDropdown(!openDropdown)}
-              className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition"
+              className="p-2 rounded-full bg-[#800000] text-white hover:bg-[#9c1c1c] transition"
             >
               <FaUserCircle className="w-6 h-6" />
             </button>
@@ -158,13 +157,9 @@ const AdminLayout = ({ children }) => {
                 href={item.href}
                 className={`flex items-center gap-3 p-3 rounded-lg transition ${
                   pathname === item.href
-                    ? "bg-maroon-600 text-white"
+                    ? "bg-[#800000] text-white"
                     : "text-gray-700 hover:bg-gray-100"
                 }`}
-                style={{
-                  backgroundColor:
-                    pathname === item.href ? "#800000" : "transparent",
-                }}
               >
                 {item.icon} {item.label}
               </Link>

@@ -60,46 +60,57 @@ export default function StudentLogsPage() {
 
   return (
     <div className="p-6 text-black">
-      <h1 className="text-2xl font-bold mb-4">View Student Logs</h1>
+      <h1 className="text-2xl font-bold mb-4 text-[#800000]">View Student Logs</h1>
 
-      <table className="w-full border border-gray-300 text-left text-black">
+      <table className="w-full border border-[#800000] text-left text-black">
         <thead>
-          <tr className="bg-gray-200">
-            <th className="p-2 border">Timestamp</th>
-            <th className="p-2 border">RFID Card</th>
-            <th className="p-2 border">Action</th>
-            <th className="p-2 border">Consent</th>
+          <tr className="bg-[#f5e6e6] text-[#800000]">
+            <th className="p-2 border border-[#800000]">Timestamp</th>
+            <th className="p-2 border border-[#800000]">RFID Card</th>
+            <th className="p-2 border border-[#800000]">Action</th>
+            <th className="p-2 border border-[#800000]">Consent</th>
           </tr>
         </thead>
         <tbody>
-  {logs.length === 0 ? (
-    <tr>
-      <td colSpan="4" className="text-center p-3 text-gray-500">
-        No scans yet
-      </td>
-    </tr>
-  ) : (
-    logs.map((log) => (
-      <tr key={log.id}>
-        <td className="p-2 border">{formatTime(log.time_stamp)}</td>
-        <td className="p-2 border">{log.rfid_card?.card_number || "N/A"}</td>
-        <td
-          className={`p-2 border font-semibold ${
-            log.action === "time-in"
-              ? "text-green-600"
-              : log.action === "time-out"
-              ? "text-red-600"
-              : ""
-          }`}
-        >
-          {log.action}
-        </td>
-        <td className="p-2 border">{log.consent ? "✅ Yes" : "❌ No"}</td>
-      </tr>
-    ))
-  )}
-</tbody>
+          {logs.length === 0 ? (
+            <tr>
+              <td colSpan="4" className="text-center p-3 text-gray-500">
+                No scans yet
+              </td>
+            </tr>
+          ) : (
+            logs.map((log) => {
+              // Normalize action
+              const actionNormalized =
+                log.action?.toLowerCase().replace("_", "-") || "";
 
+              return (
+                <tr key={log.id} className="hover:bg-[#fbe6e6] transition-colors">
+                  <td className="p-2 border border-[#800000]">{formatTime(log.time_stamp)}</td>
+                  <td className="p-2 border border-[#800000]">{log.rfid_card?.card_number || "N/A"}</td>
+                  <td
+                    className={`p-2 border border-[#800000] font-semibold ${
+                      actionNormalized === "time-in"
+                        ? "text-green-600"
+                        : actionNormalized === "time-out"
+                        ? "text-[#800000]"
+                        : "text-gray-700"
+                    }`}
+                  >
+                    {actionNormalized === "time-in"
+                      ? "Time In"
+                      : actionNormalized === "time-out"
+                      ? "Time Out"
+                      : log.action}
+                  </td>
+                  <td className="p-2 border border-[#800000]">
+                    {log.consent ? "✅ Yes" : "❌ No"}
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
       </table>
     </div>
   );

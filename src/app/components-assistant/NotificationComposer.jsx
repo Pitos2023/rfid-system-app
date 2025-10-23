@@ -1,338 +1,240 @@
 "use client";
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { supabase } from "../supabaseClient";
+import { Send, Megaphone, AlertTriangle } from "lucide-react";
 
-// Example parents dataset (expand as needed)
-const parentsData = {
-  "7": [
-    { id: "p7001", parentName: "Maria Santos", studentName: "Juan Santos" },
-    { id: "p7002", parentName: "Roberto Cruz", studentName: "Ana Cruz" },
-  ],
-  "8": [
-    { id: "p8001", parentName: "Gloria Reyes", studentName: "Antonio Reyes" },
-    { id: "p8002", parentName: "Luis Ramos", studentName: "Karla Ramos" },
-  ],
-  "9": [{ id: "p9001", parentName: "Chen Yu", studentName: "Liu Yu" }],
-  "10": [],
-  "11": [],
-  "12": [],
-};
-
-export default function NotificationComposer({ onSend }) {
-  const [type, setType] = useState("info");
-  const [grades, setGrades] = useState(["all"]);
-  const [sendToParents, setSendToParents] = useState(true);
-  const [sendToGuards, setSendToGuards] = useState(false);
+export default function NotificationComposer() {
+  const [type, setType] = useState("announcement");
+  const [subType, setSubType] = useState("");
   const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
+  const [message, setMessage] = useState("");
+  const [sendTo, setSendTo] = useState("parents");
+  const [gradeLevel, setGradeLevel] = useState("All");
+  const [grades, setGrades] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState("");
 
-  // Sick-letter specific
-  const [currentSickGrade, setCurrentSickGrade] = useState("7");
-  const [search, setSearch] = useState("");
-  const [selectedParents, setSelectedParents] = useState([]);
+  // 🔹 Fetch available grade levels
+  useEffect(() => {
+    const fetchGrades = async () => {
+      const { data, error } = await supabase
+        .from("student")
+        .select("grade_level")
+        .order("grade_level", { ascending: true });
 
-  const types = [
-    { id: "info", icon: "📢", label: "Announcement" },
-    { id: "sick", icon: "🏥", label: "Sick Letter" },
-    { id: "urgent", icon: "🚨", label: "Urgent" },
-  ];
+      if (!error && data) {
+        const uniqueGrades = [...new Set(data.map((s) => s.grade_level))];
+        setGrades(uniqueGrades);
+      }
+    };
+    fetchGrades();
+  }, []);
 
-  const toggleGrade = (grade) => {
-    if (grade === "all") {
-      setGrades(["all"]);
+  // 🔹 Subtype options
+  const announcementSubtypes = ["School Event", "Exam", "Holiday", "General"];
+  const urgentSubtypes = ["Parent Meeting", "Disaster", "Emergency"];
+
+  // 🔹 Auto-fill templates
+  useEffect(() => {
+    if (type === "announcement") {
+      switch (subType) {
+        case "School Event":
+          setTitle("Upcoming School Event");
+          setMessage("We are excited to announce an upcoming school event. Stay tuned for details!");
+          break;
+        case "Exam":
+          setTitle("Upcoming Examination");
+          setMessage("Please be reminded of the upcoming examination schedule. Prepare accordingly.");
+          break;
+        case "Holiday":
+          setTitle("School Holiday Notice");
+          setMessage("Classes will be suspended in observance of the upcoming holiday.");
+          break;
+        case "General":
+          setTitle("");
+          setMessage("");
+          break;
+      }
+    } else if (type === "urgent") {
+      switch (subType) {
+        case "Parent Meeting":
+          setTitle("Urgent Parent Meeting");
+          setMessage("An important parent meeting will be held soon. Attendance is required.");
+          break;
+        case "Disaster":
+          setTitle("Emergency Alert: Disaster");
+          setMessage("Please stay safe. School operations are temporarily suspended due to current conditions.");
+          break;
+        case "Emergency":
+          setTitle("Immediate Action Required");
+          setMessage("This is an urgent notice. Please follow safety instructions immediately.");
+          break;
+      }
+    }
+  }, [type, subType]);
+
+  // 🔹 Send handler
+  const handleSend = async () => {
+    if (!title || !message) {
+      alert("Please fill in both title and message fields.");
       return;
     }
-    let next = grades.includes("all") ? [] : [...grades];
-    if (next.includes(grade)) next = next.filter((g) => g !== grade);
-    else next.push(grade);
-    if (next.length === 0) next = ["all"];
-    setGrades(next);
-  };
 
-  const filteredParents =
-    type === "sick" && currentSickGrade && parentsData[currentSickGrade]
-      ? parentsData[currentSickGrade].filter(
-          (p) =>
-            p.parentName.toLowerCase().includes(search.toLowerCase()) ||
-            p.studentName.toLowerCase().includes(search.toLowerCase())
-        )
-      : [];
+    setLoading(true);
+    setStatus("");
 
-  const toggleParent = (parent) => {
-    setSelectedParents((prev) =>
-      prev.some((p) => p.id === parent.id)
-        ? prev.filter((p) => p.id !== parent.id)
-        : [...prev, parent]
-    );
-  };
+    try {
+      let { data: users, error: usersError } = await supabase
+        .from("users")
+        .select("id, role, student_id");
 
-  const buildRecipients = () => {
-    if (type === "sick") {
-      if (selectedParents.length === 0) return "";
-      return `${selectedParents.length} Selected Parents`;
-    }
-    const parts = [];
-    if (sendToParents) {
-      parts.push(
-        grades.includes("all") ? "All Parents" : `Grades ${grades.join(", ")}`
-      );
-    }
-    if (sendToGuards) parts.push("Security Guards");
-    return parts.join(", ");
-  };
+      if (usersError) throw usersError;
 
-  const handleSend = () => {
-    if (!title || !content) {
-      alert("Please fill out the title and content.");
-      return;
-    }
-    if (!sendToParents && !sendToGuards && type !== "sick") {
-      alert("Please choose at least one recipient group.");
-      return;
-    }
-    if (type === "sick" && selectedParents.length === 0) {
-      alert("Please select at least one parent for the sick letter.");
-      return;
-    }
+      let targetUsers = [];
 
-    const recipients =
-      type === "sick"
-        ? selectedParents.map((p) => p.parentName).join(", ")
-        : buildRecipients();
+      // ✅ Determine recipients
+      if (sendTo === "parents") {
+        targetUsers = users.filter((u) => u.role === "parent");
+      } else if (sendTo === "guards") {
+        targetUsers = users.filter((u) => u.role === "guard");
+      } else if (sendTo === "both") {
+        targetUsers = users.filter((u) => u.role === "parent" || u.role === "guard");
+      }
 
-    onSend({ title, type, content, recipients });
+      // ✅ Filter parents by grade level if selected
+      if (sendTo !== "guards" && gradeLevel !== "All") {
+        const { data: students } = await supabase
+          .from("student")
+          .select("id, grade_level")
+          .eq("grade_level", gradeLevel);
 
-    setType("info");
-    setGrades(["all"]);
-    setSendToParents(true);
-    setSendToGuards(false);
-    setTitle("");
-    setContent("");
-    setSelectedParents([]);
-    setSearch("");
-    setCurrentSickGrade("7");
-  };
+        const gradeStudentIds = students.map((s) => s.id);
+        targetUsers = targetUsers.filter((u) => gradeStudentIds.includes(u.student_id));
+      }
 
-  const onPickType = (id) => {
-    setType(id);
-    if (id === "sick") {
-      setTitle("Sick Leave Notification");
-      setContent(
-        "Your child has been marked absent due to illness. Please ensure they get proper rest and medical attention if needed. Contact the school if you have any questions."
-      );
-    } else if (id === "urgent") {
-      setTitle("Urgent School Advisory");
-      setContent("");
-    } else if (id === "announcement") {
-      setTitle("School Announcement");
-      setContent("");
-    } else {
-      setTitle("");
-      setContent("");
+      // ✅ Insert notifications
+      const notifications = targetUsers.map((user) => ({
+        user_id: user.id,
+        title,
+        message,
+        type,
+        is_read: false,
+        created_at: new Date(),
+      }));
+
+      if (notifications.length > 0) {
+        const { error: insertError } = await supabase.from("notifications").insert(notifications);
+        if (insertError) throw insertError;
+        setStatus("✅ Notifications sent successfully!");
+      } else {
+        setStatus("⚠️ No target users found for this selection.");
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus("❌ Failed to send notifications.");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden text-black">
-      {/* Header */}
-      <div className="p-6 border-b border-gray-200">
-        <h3 className="text-xl font-bold flex items-center">
-          📝 Compose Announcement
-        </h3>
-        <p className="text-sm mt-1">
-          Send targeted notifications to parents and security guards
-        </p>
+    <div className="bg-white p-6 rounded-xl shadow-md">
+      <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+        {type === "announcement" ? <Megaphone /> : <AlertTriangle />}
+        Compose Notification
+      </h2>
+
+      {/* Type */}
+      <div className="mb-3">
+        <label className="font-semibold">Type:</label>
+        <select
+          value={type}
+          onChange={(e) => {
+            setType(e.target.value);
+            setSubType("");
+          }}
+          className="ml-2 border rounded px-2 py-1"
+        >
+          <option value="announcement">Announcement</option>
+          <option value="urgent">Urgent</option>
+        </select>
       </div>
 
-      <div className="p-6 space-y-8">
-        {/* Type */}
-        <div>
-          <label className="block text-sm font-semibold mb-3">
-            Notification Type
-          </label>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {types.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => onPickType(t.id)}
-                className={`p-3 rounded-lg border-2 transition text-sm font-semibold ${
-                  type === t.id
-                    ? "border-white-600 bg-[#58181F] text-white"
-                    : "border-gray-200 bg-gray-50 hover:border-blue-300 text-black"
-                }`}
-              >
-                <div className="text-2xl mb-1">{t.icon}</div>
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* Subtype */}
+      <div className="mb-3">
+        <label className="font-semibold">Subtype:</label>
+        <select
+          value={subType}
+          onChange={(e) => setSubType(e.target.value)}
+          className="ml-2 border rounded px-2 py-1"
+        >
+          <option value="">Select Subtype</option>
+          {(type === "announcement" ? announcementSubtypes : urgentSubtypes).map((sub) => (
+            <option key={sub} value={sub}>
+              {sub}
+            </option>
+          ))}
+        </select>
+      </div>
 
-        {/* Recipients */}
-        {type !== "sick" && (
-          <div>
-            <label className="block text-sm font-semibold mb-3">
-              Send To
-            </label>
-            <div className="grid grid-cols-2 gap-4">
-              <label className="flex items-center space-x-2 border-2 border-gray-200 rounded-lg p-3 cursor-pointer hover:border-blue-300">
-                <input
-                  type="checkbox"
-                  checked={sendToParents}
-                  onChange={(e) => setSendToParents(e.target.checked)}
-                />
-                <span className="font-medium">👨‍👩‍👧‍👦 Parents</span>
-              </label>
-              <label className="flex items-center space-x-2 border-2 border-gray-200 rounded-lg p-3 cursor-pointer hover:border-blue-300">
-                <input
-                  type="checkbox"
-                  checked={sendToGuards}
-                  onChange={(e) => setSendToGuards(e.target.checked)}
-                />
-                <span className="font-medium">🛡️ Security Guards</span>
-              </label>
-            </div>
-          </div>
-        )}
+      {/* Send to */}
+      <div className="mb-3">
+        <label className="font-semibold">Send To:</label>
+        <select
+          value={sendTo}
+          onChange={(e) => setSendTo(e.target.value)}
+          className="ml-2 border rounded px-2 py-1"
+        >
+          <option value="parents">Parents</option>
+          <option value="guards">Guards</option>
+          <option value="both">Both</option>
+        </select>
+      </div>
 
-        {/* Grade selector */}
-        {type !== "sick" && sendToParents && (
-          <div>
-            <label className="block text-sm font-semibold mb-3">
-              Target Grade Levels (Parents)
-            </label>
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-              {["all", "7", "8", "9", "10", "11", "12"].map((g) => (
-                <button
-                  key={g}
-                  onClick={() => toggleGrade(g)}
-                  className={`p-3 rounded-lg border-2 text-sm font-semibold transition ${
-                    grades.includes(g)
-                      ? "border-gray-600 bg-[#58181F] text-white"
-                      : "border-gray-200 hover:border-purple-300 text-black"
-                  }`}
-                >
-                  {g === "all" ? "🎯 All" : `Grade ${g}`}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Sick-letter parent list */}
-        {type === "sick" && (
-          <div>
-            <label className="block text-sm font-semibold mb-3">
-              Select Parents for Sick Leave
-            </label>
-            <div className="flex gap-2 mb-3">
-              {["7", "8", "9", "10", "11", "12"].map((g) => (
-                <button
-                  key={g}
-                  onClick={() => setCurrentSickGrade(g)}
-                  className={`px-4 py-2 rounded-lg border-2 text-sm font-semibold transition ${
-                    currentSickGrade === g
-                      ? "border-blue-600 bg-blue-50"
-                      : "border-gray-200 hover:border-blue-300 text-black"
-                  }`}
-                >
-                  Grade {g}
-                </button>
-              ))}
-            </div>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by parent or student name..."
-              className="w-full p-3 border-2 border-gray-200 rounded-lg mb-3 text-black"
-            />
-            <div className="max-h-60 overflow-y-auto border-2 border-gray-200 rounded-lg p-3">
-              {filteredParents.length > 0 ? (
-                filteredParents.map((p) => {
-                  const isSel = selectedParents.some((sp) => sp.id === p.id);
-                  return (
-                    <button
-                      key={p.id}
-                      onClick={() => toggleParent(p)}
-                      className={`w-full text-left p-3 rounded-lg border-2 mb-2 transition ${
-                        isSel
-                          ? "border-purple-600 bg-purple-50"
-                          : "border-gray-200 hover:border-purple-300 text-black"
-                      }`}
-                    >
-                      <div className="font-semibold">{p.parentName}</div>
-                      <div className="text-sm">{`Student: ${p.studentName}`}</div>
-                    </button>
-                  );
-                })
-              ) : (
-                <p className="text-sm">No parents found</p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Title + Content */}
-        <div>
-          <label className="block text-sm font-semibold mb-2">
-            Message Title
-          </label>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full p-3 border-2 border-gray-200 rounded-lg text-black"
-            placeholder="Enter message title..."
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-semibold mb-2">
-            Message Content
-          </label>
-          <textarea
-            rows={5}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            className="w-full p-3 border-2 border-gray-200 rounded-lg text-black"
-            placeholder="Enter message content..."
-          />
-        </div>
-
-        {/* Preview */}
-        <div>
-          <label className="block text-sm font-semibold mb-2">
-            Notification Preview
-          </label>
-          <div className="p-4 border-2 border-[#58181F] rounded-lg bg-red-50 text-black">
-            {title || content ? (
-              <>
-                <div className="flex items-center gap-2 text-sm mb-2">
-                  <span>🔔</span>
-                  <span className="font-semibold uppercase">{type}</span>
-                </div>
-                <h4 className="font-bold">{title || "Title"}</h4>
-                <p>{content || "Message preview..."}</p>
-                <div className="text-xs mt-2">
-                  Recipients: {buildRecipients() || "(not selected yet)"}
-                </div>
-              </>
-            ) : (
-              <p className="text-center text-sm">📱 Your preview will appear here</p>
-            )}
-          </div>
-        </div>
-
-        {/* Send */}
-        <div className="flex justify-end pt-4 border-t border-gray-200">
-          <button
-            onClick={handleSend}
-            className="bg-[#58181F] hover:bg-red-900 text-white px-6 py-3 rounded-lg font-semibold shadow-md flex items-center gap-2"
+      {/* Grade level */}
+      {sendTo !== "guards" && (
+        <div className="mb-3">
+          <label className="font-semibold">Grade Level:</label>
+          <select
+            value={gradeLevel}
+            onChange={(e) => setGradeLevel(e.target.value)}
+            className="ml-2 border rounded px-2 py-1"
           >
-            <span>📤</span>
-            <span>Send Notification</span>
-          </button>
+            <option value="All">All</option>
+            {grades.map((grade) => (
+              <option key={grade} value={grade}>
+                {grade}
+              </option>
+            ))}
+          </select>
         </div>
-      </div>
+      )}
+
+      {/* Title + Message */}
+      <input
+        type="text"
+        placeholder="Title"
+        className="w-full border rounded px-3 py-2 mb-3"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+      />
+      <textarea
+        placeholder="Message"
+        className="w-full border rounded px-3 py-2 mb-4 h-32"
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+      />
+
+      <button
+        onClick={handleSend}
+        disabled={loading}
+        className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700"
+      >
+        <Send size={16} />
+        {loading ? "Sending..." : "Send Notification"}
+      </button>
+
+      {status && <p className="mt-3 text-sm">{status}</p>}
     </div>
   );
 }

@@ -16,6 +16,7 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+
   const dropdownRef = useRef(null);
   const profileButtonRef = useRef(null);
   const profileModalRef = useRef(null);
@@ -30,7 +31,6 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
   });
 
   useEffect(() => {
-    // Sync formData when users prop changes
     setFormData({
       first_name: users?.first_name || "",
       last_name: users?.last_name || "",
@@ -44,7 +44,9 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
   const fetchNotifications = async () => {
     try {
       setLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const userId = session?.user?.id;
 
       if (!userId) {
@@ -60,6 +62,7 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
         .order("created_at", { ascending: false });
 
       if (error) throw error;
+
       setNotifications(data || []);
       setUnreadCount(data?.filter((n) => !n.is_read).length || 0);
     } catch (err) {
@@ -72,19 +75,16 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
 
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 5000);
+    const interval = setInterval(fetchNotifications, 5000); // refresh every 5s
     return () => clearInterval(interval);
   }, []);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
-      // Notifications dropdown
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setDropdownOpen(false);
       }
-
-      // Profile modal
       if (profileOpen) {
         const clickedInsideModal =
           profileModalRef.current && profileModalRef.current.contains(event.target);
@@ -101,7 +101,9 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
 
   const markAllAsRead = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const userId = session?.user?.id;
 
       await supabase
@@ -116,10 +118,11 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
     }
   };
 
-  // ✅ FIXED handleSaveProfile (with updated_at)
   const handleSaveProfile = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const userId = session?.user?.id;
       if (!userId) {
         alert("No authenticated user found.");
@@ -134,7 +137,7 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
           email: formData.email,
           contact_number: formData.contact_number,
           address: formData.address,
-          updated_at: new Date().toISOString(), // ✅ Fixed column update
+          updated_at: new Date().toISOString(),
         })
         .eq("id", userId);
 
@@ -174,20 +177,18 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
 
   return (
     <>
-      <header className="bg-white shadow-sm border-b border-gray-200 px-4 sm:px-6 py-3 flex justify-between items-center sticky top-0 z-40">
+      <header className="bg-[#800000] text-white shadow-sm border-b border-gray-200 px-4 sm:px-6 py-3 flex justify-between items-center sticky top-0 z-40">
         {/* LEFT */}
         <div className="flex items-center space-x-3 sm:space-x-4">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="lg:hidden p-2 rounded-lg hover:bg-gray-100 text-gray-800"
+            className="lg:hidden p-2 rounded-lg hover:bg-[#9c1c1c] text-white"
           >
             ☰
           </button>
           <div>
-            <h2 className="text-lg sm:text-2xl font-bold text-gray-800">
-              {titles[currentView]}
-            </h2>
-            <p className="text-xs sm:text-sm text-gray-600">{getSubtitle()}</p>
+            <h2 className="text-lg sm:text-2xl font-bold">{titles[currentView]}</h2>
+            <p className="text-xs sm:text-sm">{getSubtitle()}</p>
           </div>
         </div>
 
@@ -200,18 +201,20 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
                 setDropdownOpen(!dropdownOpen);
                 if (!dropdownOpen) markAllAsRead();
               }}
-              className="relative p-2 rounded-full hover:bg-gray-100 text-gray-700"
+              className="relative p-2 rounded-full hover:bg-[#9c1c1c] text-white"
             >
               <Bell className="w-5 sm:w-6 h-5 sm:h-6" />
               {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-5 px-1 text-xs font-bold bg-red-500 rounded-full flex items-center justify-center">
+                  {unreadCount}
+                </span>
               )}
             </button>
 
             {dropdownOpen && (
-              <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white shadow-lg rounded-xl border border-gray-200 z-50 max-h-80 overflow-y-auto">
+              <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white shadow-lg rounded-xl border border-gray-200 z-50 max-h-80 overflow-y-auto text-gray-800">
                 <div className="p-3 border-b border-gray-100 flex justify-between items-center">
-                  <span className="font-semibold text-gray-800">Notifications</span>
+                  <span className="font-semibold">Notifications</span>
                   <button
                     onClick={markAllAsRead}
                     className="text-xs sm:text-sm text-blue-600 hover:underline"
@@ -234,7 +237,7 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
                       } hover:bg-gray-50`}
                     >
                       <div className="flex justify-between items-center">
-                        <p className="font-medium text-gray-800">{notif.title}</p>
+                        <p className="font-medium">{notif.title}</p>
                         {!notif.is_read && <CheckCircle className="text-green-500" size={16} />}
                       </div>
                       <p className="text-xs sm:text-sm text-gray-600">{notif.message}</p>
@@ -256,7 +259,7 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
           <div ref={profileButtonRef}>
             <button
               onClick={() => setProfileOpen((v) => !v)}
-              className="p-2 rounded-full hover:bg-gray-100 text-gray-700"
+              className="p-2 rounded-full hover:bg-[#9c1c1c] text-white"
             >
               <User className="w-5 sm:w-6 h-5 sm:h-6" />
             </button>

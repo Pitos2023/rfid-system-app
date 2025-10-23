@@ -22,7 +22,6 @@ const ParentManagement = () => {
     fetchParents();
   }, []);
 
-  // ✅ Fetch all users with specific roles
   const fetchParents = async () => {
     const { data, error } = await supabase
       .from("users")
@@ -30,27 +29,21 @@ const ParentManagement = () => {
       .in("role", ["parent", "assistant_principal", "critique"])
       .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error("Error fetching users:", error);
-    } else {
-      setParents(data || []);
-    }
+    if (error) console.error("Error fetching users:", error);
+    else setParents(data || []);
   };
 
-  // ✅ Add new user (Supabase Auth + users table)
   const handleAddParent = async (e) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      // Step 1️⃣: Create the user in Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: newParent.email,
-        password: newParent.password, // Supabase handles hashing
+        password: newParent.password,
       });
 
       if (authError) {
-        console.error("Auth signUp error:", authError);
         alert(authError.message);
         setLoading(false);
         return;
@@ -63,7 +56,6 @@ const ParentManagement = () => {
         return;
       }
 
-      // Step 2️⃣: Insert user details into your custom "users" table
       const { error: insertError } = await supabase.from("users").insert([
         {
           id: userId,
@@ -77,13 +69,11 @@ const ParentManagement = () => {
       ]);
 
       if (insertError) {
-        console.error("Insert error:", insertError);
         alert(insertError.message);
         setLoading(false);
         return;
       }
 
-      // Step 3️⃣: Reset form + reload list
       alert("User added successfully!");
       setNewParent({
         first_name: "",
@@ -97,7 +87,7 @@ const ParentManagement = () => {
       setIsModalOpen(false);
       fetchParents();
     } catch (err) {
-      console.error("Unexpected error:", err);
+      console.error(err);
       alert("Something went wrong. Check console for details.");
     } finally {
       setLoading(false);
@@ -117,7 +107,7 @@ const ParentManagement = () => {
 
         <button
           onClick={() => setIsModalOpen(true)}
-          className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-4 py-2 rounded-xl shadow-md hover:from-blue-700 hover:to-indigo-700 transition-all"
+          className="flex items-center justify-center gap-2 bg-[#800000] text-white px-4 py-2 rounded-xl shadow-md hover:bg-[#9c1c1c] transition-all"
         >
           <FaUserPlus /> Add User
         </button>
@@ -149,17 +139,15 @@ const ParentManagement = () => {
                 </td>
                 <td className="px-6 py-4">
                   <div>{parent.email}</div>
-                  <div className="text-gray-500 text-xs">
-                    {parent.contact_number}
-                  </div>
+                  <div className="text-gray-500 text-xs">{parent.contact_number}</div>
                 </td>
                 <td className="px-6 py-4">{parent.address}</td>
                 <td className="px-6 py-4 capitalize">{parent.role}</td>
                 <td className="px-6 py-4 flex items-center gap-3">
-                  <button className="text-blue-600 hover:text-blue-800">
+                  <button className="text-[#800000] hover:text-[#9c1c1c]">
                     <FaEdit />
                   </button>
-                  <button className="text-red-500 hover:text-red-700">
+                  <button className="text-[#800000] hover:text-[#9c1c1c]">
                     <FaTrash />
                   </button>
                 </td>
@@ -199,7 +187,7 @@ const ParentManagement = () => {
                 <input
                   type="text"
                   placeholder="e.g. Robert"
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
                   value={newParent.first_name}
                   onChange={(e) => setNewParent({ ...newParent, first_name: e.target.value })}
                   required
@@ -212,7 +200,7 @@ const ParentManagement = () => {
                 <input
                   type="text"
                   placeholder="e.g. Smith"
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
                   value={newParent.last_name}
                   onChange={(e) => setNewParent({ ...newParent, last_name: e.target.value })}
                   required
@@ -225,7 +213,7 @@ const ParentManagement = () => {
                 <input
                   type="email"
                   placeholder="e.g. robert@email.com"
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
                   value={newParent.email}
                   onChange={(e) => setNewParent({ ...newParent, email: e.target.value })}
                   required
@@ -238,7 +226,7 @@ const ParentManagement = () => {
                 <input
                   type="text"
                   placeholder="e.g. 09123456789"
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
                   value={newParent.contact_number}
                   onChange={(e) => setNewParent({ ...newParent, contact_number: e.target.value })}
                   required
@@ -250,7 +238,7 @@ const ParentManagement = () => {
                 <label className="text-gray-700 text-sm font-medium mb-1">Address</label>
                 <textarea
                   placeholder="e.g. 123 Main Street, Quezon City"
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
+                  className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none resize-none"
                   rows="2"
                   value={newParent.address}
                   onChange={(e) => setNewParent({ ...newParent, address: e.target.value })}
@@ -264,7 +252,7 @@ const ParentManagement = () => {
                 <input
                   type="password"
                   placeholder="Enter password"
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
                   value={newParent.password}
                   onChange={(e) => setNewParent({ ...newParent, password: e.target.value })}
                   required
@@ -277,7 +265,7 @@ const ParentManagement = () => {
                 <select
                   value={newParent.role}
                   onChange={(e) => setNewParent({ ...newParent, role: e.target.value })}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
                   required
                 >
                   <option value="parent">Parent</option>
@@ -298,7 +286,7 @@ const ParentManagement = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg shadow-md hover:from-blue-700 hover:to-indigo-700 transition-all"
+                  className="px-5 py-2 bg-[#800000] text-white rounded-lg shadow-md hover:bg-[#9c1c1c] transition-all"
                 >
                   {loading ? "Adding..." : "Add User"}
                 </button>

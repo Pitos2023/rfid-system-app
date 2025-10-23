@@ -6,6 +6,7 @@ import { supabase } from "../supabaseClient";
 const StudentManagement = () => {
   const [students, setStudents] = useState([]);
   const [rfidCards, setRfidCards] = useState([]);
+  const [parents, setParents] = useState([]); // ✅ Added to store parent details
 
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -42,9 +43,19 @@ const StudentManagement = () => {
     else setRfidCards(data);
   };
 
+  // ✅ Fetch all parents (to map users_id → parent name)
+  const fetchParents = async () => {
+    const { data, error } = await supabase
+      .from("users")
+      .select("id, first_name, last_name");
+    if (error) console.error("Error fetching parents:", error);
+    else setParents(data);
+  };
+
   useEffect(() => {
     fetchStudents();
     fetchRFIDCards();
+    fetchParents(); // ✅ Fetch parents for display
   }, []);
 
   // ✅ Upload student image
@@ -72,13 +83,11 @@ const StudentManagement = () => {
   // ✅ Add Student + Image + RFID
   const handleAddStudent = async () => {
     try {
-      // Upload image if provided
       let imageUrl = null;
       if (studentPic) {
         imageUrl = await uploadStudentPic(studentPic);
       }
 
-      // Insert student
       const { data: insertedStudent, error: studentError } = await supabase
         .from("student")
         .insert([{ ...newStudent, student_pic: imageUrl }])
@@ -88,7 +97,6 @@ const StudentManagement = () => {
 
       const studentId = insertedStudent[0].id;
 
-      // Insert RFID card if provided
       if (rfidCardNumber) {
         const { error: rfidError } = await supabase
           .from("rfid_card")
@@ -155,6 +163,7 @@ const StudentManagement = () => {
       setParentResults([]);
       setSearchQuery("");
       fetchStudents();
+      fetchParents(); // ✅ Refresh parent data
     }
   };
 
@@ -178,7 +187,7 @@ const StudentManagement = () => {
         <div className="flex justify-start gap-4 mb-6">
           <button
             onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+            className="flex items-center gap-2 bg-[#800000] text-white px-4 py-2 rounded-lg hover:bg-[#9c1c1c]"
           >
             <FaUserPlus /> Add Student
           </button>
@@ -216,6 +225,12 @@ const StudentManagement = () => {
                   const card = rfidCards.find(
                     (rfid) => rfid.student_id === student.id
                   );
+
+                  // ✅ Find parent full name
+                  const parent = parents.find(
+                    (p) => p.id === student.users_id
+                  );
+
                   return (
                     <tr key={student.id} className="text-center">
                       <td className="border px-4 py-2">{index + 1}</td>
@@ -241,15 +256,17 @@ const StudentManagement = () => {
                         {card ? card.card_number : "—"}
                       </td>
                       <td className="border px-4 py-2">
-                        {student.users_id ? (
-                          <span>{student.users_id}</span>
+                        {student.users_id && parent ? (
+                          <span>
+                            {parent.first_name} {parent.last_name}
+                          </span>
                         ) : (
                           <button
                             onClick={() => {
                               setSelectedStudentForParent(student);
                               setIsAssignParentModalOpen(true);
                             }}
-                            className="bg-indigo-600 text-white px-3 py-1 rounded-md hover:bg-indigo-700 text-sm"
+                            className="bg-[#800000] text-white px-3 py-1 rounded-md hover:bg-[#9c1c1c] text-sm"
                           >
                             Assign Parent
                           </button>
@@ -258,7 +275,7 @@ const StudentManagement = () => {
                       <td className="border px-4 py-2">
                         <button
                           onClick={() => handleDeleteStudent(student.id)}
-                          className="text-red-600 hover:text-red-800"
+                          className="text-[#800000] hover:text-[#9c1c1c]"
                         >
                           <FaTrash />
                         </button>
@@ -272,7 +289,7 @@ const StudentManagement = () => {
         </div>
       </div>
 
-      {/* --- Add Student Modal --- */}
+      {/* Add Student Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-8 border border-gray-100">
@@ -377,7 +394,7 @@ const StudentManagement = () => {
               </button>
               <button
                 onClick={handleAddStudent}
-                className="px-5 py-2 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg shadow-md hover:from-green-700 hover:to-green-800"
+                className="px-5 py-2 bg-[#800000] text-white rounded-lg shadow-md hover:bg-[#9c1c1c]"
               >
                 Add Student
               </button>
@@ -386,7 +403,7 @@ const StudentManagement = () => {
         </div>
       )}
 
-      {/* --- Assign Parent Modal --- */}
+      {/* Assign Parent Modal */}
       {isAssignParentModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-[400px] shadow-lg border border-gray-200 text-black">
@@ -406,7 +423,7 @@ const StudentManagement = () => {
               />
               <button
                 onClick={handleSearchParent}
-                className="bg-blue-600 text-white px-3 py-2 rounded-md hover:bg-blue-700"
+                className="bg-[#800000] text-white px-3 py-2 rounded-md hover:bg-[#9c1c1c]"
               >
                 Search
               </button>
@@ -432,7 +449,7 @@ const StudentManagement = () => {
                     </div>
                     <button
                       onClick={() => handleAssignParent(users.id)}
-                      className="bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 text-sm"
+                      className="bg-[#800000] text-white px-3 py-1 rounded-md hover:bg-[#9c1c1c] text-sm"
                     >
                       Assign
                     </button>

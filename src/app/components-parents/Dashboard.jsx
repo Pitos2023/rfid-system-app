@@ -13,17 +13,13 @@ export default function Students({ user }) {
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const intervalRef = useRef(null);
 
-  // ✅ Show custom popup for notifications on first login
   useEffect(() => {
     if (typeof window !== "undefined" && user?.id) {
       const alreadyAsked = localStorage.getItem("notifPromptShown");
-      if (!alreadyAsked) {
-        setShowNotifPrompt(true);
-      }
+      if (!alreadyAsked) setShowNotifPrompt(true);
     }
   }, [user?.id]);
 
-  // ✅ Register OneSignal and save player ID
   const registerOneSignal = async () => {
     if (typeof window === "undefined" || !user?.id) return;
 
@@ -51,8 +47,7 @@ export default function Students({ user }) {
             .from("users")
             .update({ onesignal_player_id: playerId })
             .eq("id", user.id);
-          if (error)
-            console.error("❌ Failed to save OneSignal player id:", error);
+          if (error) console.error("❌ Failed to save OneSignal player id:", error);
           else console.log("✅ Saved OneSignal player id:", playerId);
         } catch (err) {
           console.error("❌ Error saving player id:", err);
@@ -61,7 +56,6 @@ export default function Students({ user }) {
     });
   };
 
-  // ✅ Handle user click on “Allow Notifications”
   const handleAllowNotifications = async () => {
     setShowNotifPrompt(false);
     localStorage.setItem("notifPromptShown", "true");
@@ -73,7 +67,6 @@ export default function Students({ user }) {
     localStorage.setItem("notifPromptShown", "true");
   };
 
-  // ✅ Fetch all students (updated: now includes student_pic)
   useEffect(() => {
     const fetchStudents = async () => {
       if (!user?.id) return;
@@ -89,9 +82,7 @@ export default function Students({ user }) {
       if (error) {
         console.error("Error fetching students:", error.message);
         setStudents([]);
-      } else {
-        setStudents(data || []);
-      }
+      } else setStudents(data || []);
 
       setLoadingStudents(false);
     };
@@ -99,7 +90,6 @@ export default function Students({ user }) {
     fetchStudents();
   }, [user]);
 
-  // ✅ Fetch logs for selected student
   const fetchStudentLogs = async (studentId) => {
     setLoadingLogs(true);
     try {
@@ -128,7 +118,6 @@ export default function Students({ user }) {
     await fetchStudentLogs(student.id);
     setShowModal(true);
 
-    // auto-refresh logs every 5 seconds
     intervalRef.current = setInterval(() => {
       fetchStudentLogs(student.id);
     }, 5000);
@@ -140,7 +129,6 @@ export default function Students({ user }) {
     clearInterval(intervalRef.current);
   };
 
-  // ✅ UI
   if (loadingStudents)
     return (
       <div className="flex justify-center items-center h-[70vh]">
@@ -158,16 +146,15 @@ export default function Students({ user }) {
     );
 
   return (
-    <div id="studentsView" className="p-6">
-      {/* 🧩 Students */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div id="studentsView" className="p-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {students.map((s) => (
           <div
             key={s.id}
-            className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition"
+            className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition"
           >
-            <div className="p-8 text-center border-b border-gray-100 bg-gradient-to-b from-gray-50 to-white">
-              <div className="w-24 h-24 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow overflow-hidden">
+            <div className="p-4 text-center border-b border-gray-100 bg-gradient-to-b from-gray-50 to-white">
+              <div className="w-16 h-16 bg-gradient-to-br from-[#800000] to-[#9c1c1c] rounded-full flex items-center justify-center mx-auto mb-2 shadow overflow-hidden text-xs">
                 {s.student_pic ? (
                   <img
                     src={s.student_pic}
@@ -175,42 +162,36 @@ export default function Students({ user }) {
                     className="object-cover w-full h-full"
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-300 text-sm bg-gray-100">
+                  <div className="w-full h-full flex items-center justify-center text-gray-200 bg-gray-100">
                     No Image
                   </div>
                 )}
               </div>
-              <h3 className="text-2xl font-bold text-gray-800">
+              <h3 className="text-lg font-bold text-gray-800 truncate">
                 {s.first_name} {s.last_name}
               </h3>
-              <p className="text-gray-600">
+              <p className="text-gray-600 text-sm truncate">
                 Grade {s.grade_level} - {s.section}
               </p>
             </div>
 
-            <div className="p-7">
-              <div className="grid grid-cols-2 gap-6 mb-6">
+            <div className="p-4">
+              <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
                 <div>
-                  <label className="text-sm font-medium text-gray-500">
-                    Student ID
-                  </label>
-                  <p className="text-gray-800 font-semibold">{s.school_id}</p>
+                  <label className="font-medium text-gray-500">Student ID</label>
+                  <p className="text-gray-800 font-semibold truncate">{s.school_id}</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-500">
-                    Birthdate
-                  </label>
+                  <label className="font-medium text-gray-500">Birthdate</label>
                   <p className="text-gray-800 font-semibold">
-                    {s.birthdate
-                      ? new Date(s.birthdate).toLocaleDateString()
-                      : "—"}
+                    {s.birthdate ? new Date(s.birthdate).toLocaleDateString() : "—"}
                   </p>
                 </div>
               </div>
 
               <button
                 onClick={() => handleViewLogs(s)}
-                className="w-full bg-[#58181F] text-white py-3 rounded-lg font-semibold shadow hover:bg-[#6d2029] transition-colors"
+                className="w-full bg-[#800000] text-white py-2 rounded-lg font-semibold shadow hover:bg-[#9c1c1c] transition-colors text-sm"
               >
                 View Activity Log
               </button>
@@ -219,47 +200,44 @@ export default function Students({ user }) {
         ))}
       </div>
 
-      {/* 🧩 Modal for logs */}
       {showModal && selectedStudent && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-2xl p-6 relative">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-[90%] max-w-2xl p-4 relative">
             <button
               onClick={closeModal}
-              className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-2xl"
+              className="absolute top-2 right-2 text-gray-500 hover:text-gray-800 text-xl"
             >
               ×
             </button>
 
-            <h2 className="text-2xl font-bold mb-4 text-center text-gray-800">
+            <h2 className="text-xl font-bold mb-3 text-center text-gray-800">
               {selectedStudent.first_name} {selectedStudent.last_name} — Logs
             </h2>
 
             {loadingLogs ? (
-              <p className="text-center text-gray-500">Loading logs...</p>
+              <p className="text-center text-gray-500 text-sm">Loading logs...</p>
             ) : studentLogs.length === 0 ? (
-              <p className="text-center text-gray-500">
-                No logs found for this student.
-              </p>
+              <p className="text-center text-gray-500 text-sm">No logs found for this student.</p>
             ) : (
-              <div className="max-h-[60vh] overflow-y-auto divide-y divide-gray-100">
+              <div className="max-h-[50vh] overflow-y-auto divide-y divide-gray-100 text-sm">
                 {studentLogs.map((log) => (
                   <div
                     key={log.id}
-                    className="flex justify-between items-center py-3"
+                    className="flex justify-between items-center py-1.5"
                   >
                     <div>
                       <p className="font-semibold text-gray-800 capitalize">
                         {log.action.replace("_", " ")}
                       </p>
-                      <p className="text-gray-500 text-sm">
+                      <p className="text-gray-500 text-xs">
                         {new Date(log.time_stamp).toLocaleString()}
                       </p>
                     </div>
                     <span
-                      className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                      className={`px-2 py-0.5 rounded-full font-semibold text-xs ${
                         log.action.includes("in")
                           ? "bg-green-100 text-green-700"
-                          : "bg-red-100 text-red-700"
+                          : "bg-[#f2dede] text-[#800000]"
                       }`}
                     >
                       {log.action.includes("in") ? "IN" : "OUT"}
@@ -272,27 +250,26 @@ export default function Students({ user }) {
         </div>
       )}
 
-      {/* 🧩 Notification popup */}
       {showNotifPrompt && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-8 w-[90%] max-w-md text-center">
-            <h2 className="text-xl font-semibold mb-4 text-gray-800">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-[90%] max-w-sm text-center">
+            <h2 className="text-lg font-semibold mb-3 text-gray-800">
               Enable Notifications?
             </h2>
-            <p className="text-gray-600 mb-6">
+            <p className="text-gray-600 mb-4 text-sm">
               Would you like to receive notifications when your student scans in
               or out?
             </p>
-            <div className="flex justify-center gap-4">
+            <div className="flex justify-center gap-2">
               <button
                 onClick={handleAllowNotifications}
-                className="bg-green-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-700 transition"
+                className="bg-[#800000] text-white px-4 py-1 rounded-lg font-semibold hover:bg-[#9c1c1c] transition text-sm"
               >
-                Allow Notifications
+                Allow
               </button>
               <button
                 onClick={handleIgnoreNotifications}
-                className="bg-gray-300 text-gray-700 px-6 py-2 rounded-lg font-semibold hover:bg-gray-400 transition"
+                className="bg-gray-300 text-gray-700 px-4 py-1 rounded-lg font-semibold hover:bg-gray-400 transition text-sm"
               >
                 Ignore
               </button>

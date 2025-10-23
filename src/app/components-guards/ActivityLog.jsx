@@ -10,8 +10,14 @@ export default function ActivityLog() {
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [scannedStudent, setScannedStudent] = useState(null);
+  const [mobileDropdownOpen, setMobileDropdownOpen] = useState(false);
 
-  // ✅ Fetch logs from API
+  const filters = [
+    { key: "today", label: "Today" },
+    { key: "week", label: "This Week" },
+    { key: "month", label: "This Month" },
+  ];
+
   const fetchLogs = async () => {
     try {
       setLoading(true);
@@ -19,18 +25,16 @@ export default function ActivityLog() {
       const json = await res.json();
       setLogs(json.logs || []);
     } catch (err) {
-      console.error("❌ Error fetching logs:", err);
+      console.error("Error fetching logs:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ Load logs when page loads
   useEffect(() => {
     fetchLogs();
   }, []);
 
-  // ✅ Handle RFID scan
   const handleScan = async (e) => {
     e.preventDefault();
     if (!cardNumber.trim()) return;
@@ -44,26 +48,20 @@ export default function ActivityLog() {
       });
 
       const data = await res.json();
-
       if (data.success) {
-        // Wait briefly for database updates
         await new Promise((r) => setTimeout(r, 300));
         await fetchLogs();
 
-        // ✅ Fetch student details (based on log student_id)
         const log = data.log;
         if (log?.student_id) {
           const studentRes = await fetch(`/api/get-student?id=${log.student_id}`);
-          if (!studentRes.ok) {
-            console.error("❌ Failed to fetch student:", studentRes.status);
-            return;
-          }
+          if (!studentRes.ok) return;
 
           const studentJson = await studentRes.json();
           if (studentJson?.student) {
             setScannedStudent(studentJson.student);
             setShowModal(true);
-            setTimeout(() => setShowModal(false), 4000); // Auto-close in 4s
+            setTimeout(() => setShowModal(false), 4000);
           }
         }
       } else if (data.error) {
@@ -79,78 +77,104 @@ export default function ActivityLog() {
     }
   };
 
-  // ✅ Apply filters
   const now = new Date();
   const filteredLogs = logs.filter((log) => {
     const logDate = new Date(log.time_stamp);
     if (filter === "today") return logDate.toDateString() === now.toDateString();
     if (filter === "week") return (now - logDate) / (1000 * 60 * 60 * 24) <= 7;
     if (filter === "month")
-      return (
-        logDate.getMonth() === now.getMonth() &&
-        logDate.getFullYear() === now.getFullYear()
-      );
+      return logDate.getMonth() === now.getMonth() && logDate.getFullYear() === now.getFullYear();
     return true;
   });
 
   return (
-    <div className="relative lg:col-span-2 bg-white border border-gray-200 rounded-xl shadow-sm">
-      {/* ✅ MODAL: Enlarged student info */}
+    <div className="relative lg:col-span-2 bg-white border border-gray-200 rounded-2xl shadow-md">
+      {/* Modal */}
       {showModal && scannedStudent && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+        <div className="fixed inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-50">
           <div className="bg-white rounded-2xl shadow-2xl p-8 w-[420px] sm:w-[500px] text-center transform transition-all animate-fadeIn scale-105">
             <img
               src={scannedStudent.student_pic || "/default-avatar.png"}
               alt="Student"
-              className="w-36 h-36 mx-auto rounded-full object-cover mb-4 border-4 border-[#58181F]"
+              className="w-36 h-36 mx-auto rounded-full object-cover mb-4 border-4 border-[#9c1c1c]"
             />
-            <h2 className="text-2xl font-bold text-gray-900">
+            <h2 className="text-2xl font-bold text-[#800000]">
               {scannedStudent.first_name} {scannedStudent.last_name}
             </h2>
             <p className="text-gray-600 text-base mt-1">
               {scannedStudent.grade_level} - {scannedStudent.section}
             </p>
-            <p className="text-gray-700 mt-4 font-medium text-lg">
+            <p className="text-[#58181F] mt-4 font-medium text-lg">
               ✅ Successfully Scanned!
             </p>
           </div>
         </div>
       )}
 
-      {/* Header */}
-      <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-        <h3 className="text-2xl font-bold text-black">RFID Activity Log</h3>
-        <div className="flex space-x-2">
-          {["today", "week", "month"].map((f) => (
+      {/* Header / Filter */}
+      <div className="p-6 border-b border-[#9c1c1c] flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-0">
+        <h3 className="text-2xl font-bold text-[#800000]">RFID Activity Log</h3>
+
+        {/* Desktop buttons */}
+        <div className="hidden sm:flex space-x-2">
+          {filters.map((f) => (
             <button
-              key={f}
-              onClick={() => setFilter(f)}
+              key={f.key}
+              onClick={() => setFilter(f.key)}
               className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${
-                filter === f
-                  ? "bg-[#58181F] text-white border-[#58181F]"
-                  : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+                filter === f.key
+                  ? "bg-[#800000] text-white border-[#800000]"
+                  : "bg-white text-[#800000] border-[#9c1c1c] hover:bg-[#f5dada]"
               }`}
             >
-              {f === "today" ? "Today" : f === "week" ? "This Week" : "This Month"}
+              {f.label}
             </button>
           ))}
         </div>
+
+        {/* Mobile dropdown */}
+        <div className="sm:hidden relative w-full max-w-xs">
+          <button
+            onClick={() => setMobileDropdownOpen(!mobileDropdownOpen)}
+            className="w-full text-left px-4 py-2 border rounded-lg bg-white border-[#9c1c1c] text-[#800000] font-medium focus:outline-none"
+          >
+            {filters.find((f) => f.key === filter)?.label}
+          </button>
+          {mobileDropdownOpen && (
+            <div className="absolute mt-1 w-full bg-white border border-[#9c1c1c] rounded-lg shadow-lg z-50">
+              {filters
+                .filter((f) => f.key !== filter)
+                .map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => {
+                      setFilter(f.key);
+                      setMobileDropdownOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-[#800000] hover:bg-[#f5dada] transition"
+                  >
+                    {f.label}
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* RFID Scan Input */}
-      <div className="p-6 border-b border-gray-200">
-        <form onSubmit={handleScan} className="flex gap-3">
+      {/* Scan Input */}
+      <div className="p-6 border-b border-[#9c1c1c]">
+        <form onSubmit={handleScan} className="flex gap-3 flex-col sm:flex-row">
           <input
             value={cardNumber}
             onChange={(e) => setCardNumber(e.target.value)}
             placeholder="Scan RFID..."
             autoFocus
-            className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#58181F]"
+            className="w-full border border-[#9c1c1c] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#800000]"
           />
           <button
             type="submit"
             disabled={scanning}
-            className="bg-[#58181F] text-white px-5 py-2 rounded-lg hover:bg-[#702029] transition disabled:bg-gray-400"
+            className="bg-[#800000] text-white px-5 py-2 rounded-lg hover:bg-[#9c1c1c] transition disabled:bg-gray-400"
           >
             {scanning ? "Scanning..." : "Submit"}
           </button>
@@ -167,21 +191,21 @@ export default function ActivityLog() {
           </p>
         ) : (
           <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+            <thead className="bg-[#f5dada]">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
                   Student
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
                   Date & Time
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
                   Grade & Section
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
                   Action
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
                   Consent
                 </th>
               </tr>
@@ -194,14 +218,14 @@ export default function ActivityLog() {
                       <img
                         src={log.student.student_pic}
                         alt="Student"
-                        className="w-10 h-10 rounded-full object-cover border"
+                        className="w-10 h-10 rounded-full object-cover border-2 border-[#9c1c1c]"
                       />
                     ) : (
                       <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-sm">
                         N/A
                       </div>
                     )}
-                    <p className="font-semibold text-black">
+                    <p className="font-semibold text-[#58181F]">
                       {log.student
                         ? `${log.student.first_name} ${log.student.last_name}`
                         : "Unknown Student"}
@@ -209,7 +233,7 @@ export default function ActivityLog() {
                   </td>
 
                   <td className="px-4 py-3">
-                    <p className="text-sm text-black">
+                    <p className="text-sm text-[#58181F]">
                       {new Date(log.time_stamp).toLocaleDateString("en-US", {
                         month: "short",
                         day: "numeric",
@@ -224,11 +248,9 @@ export default function ActivityLog() {
                     </p>
                   </td>
 
-                  <td className="px-4 py-3 text-sm text-gray-800">
+                  <td className="px-4 py-3 text-sm text-[#58181F]">
                     {log.student
-                      ? `${log.student.grade_level || "-"} - ${
-                          log.student.section || "-"
-                        }`
+                      ? `${log.student.grade_level || "-"} - ${log.student.section || "-"}`
                       : "-"}
                   </td>
 
@@ -240,12 +262,8 @@ export default function ActivityLog() {
                     {log.action || "-"}
                   </td>
 
-                  <td className="px-4 py-3">
-                    <span
-                      className={`font-semibold ${
-                        log.consent ? "text-green-600" : "text-red-600"
-                      }`}
-                    >
+                  <td className="px-4 py-3 font-semibold">
+                    <span className={`${log.consent ? "text-green-600" : "text-red-600"}`}>
                       {log.consent ? "✔ Yes" : "❌ No"}
                     </span>
                   </td>
@@ -255,6 +273,22 @@ export default function ActivityLog() {
           </table>
         )}
       </div>
+
+      <style jsx>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-5px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.15s ease-in-out;
+        }
+      `}</style>
     </div>
   );
 }

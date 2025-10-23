@@ -1,54 +1,71 @@
+// api/rfid-scan/route.js
 import { createClient } from "@supabase/supabase-js";
 
-// ✅ Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ✅ OneSignal config
 const ONESIGNAL_APP_ID = process.env.ONE_SIGNAL_APP_ID;
 const ONESIGNAL_REST_KEY = process.env.ONE_SIGNAL_REST_KEY;
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://example.com";
 
-// ✅ Utility: Send OneSignal push to a specific player id
-async function sendOneSignalNotification(playerId, title, body, data = {}) {
+async function sendOneSignalNotification(playerId, title, body, data = {}, withConsentButtons = false) {
   if (!playerId) return;
 
   try {
+    const payload = {
+      app_id: ONESIGNAL_APP_ID,
+      include_player_ids: [playerId],
+      headings: { en: title },
+      contents: { en: body },
+      data,
+    };
+
+    if (withConsentButtons && data?.log_id && data?.parent_id) {
+      const yesUrl = `${APP_URL}/api/consent-response?log_id=${encodeURIComponent(data.log_id)}&response=yes&parent_id=${encodeURIComponent(data.parent_id)}`;
+      const noUrl = `${APP_URL}/api/consent-response?log_id=${encodeURIComponent(data.log_id)}&response=no&parent_id=${encodeURIComponent(data.parent_id)}`;
+
+      payload.buttons = [
+        { id: "yes", text: "Yes", url: yesUrl },
+        { id: "no", text: "No", url: noUrl },
+      ];
+      payload.web_buttons = [
+        { id: "yes", text: "Yes", url: yesUrl },
+        { id: "no", text: "No", url: noUrl },
+      ];
+      payload.data = { ...payload.data, consent_urls: { yes: yesUrl, no: noUrl } };
+    }
+
     await fetch("https://onesignal.com/api/v1/notifications", {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         Authorization: `Basic ${ONESIGNAL_REST_KEY}`,
       },
-      body: JSON.stringify({
-        app_id: ONESIGNAL_APP_ID,
-        include_player_ids: [playerId],
-        headings: { en: title },
-        contents: { en: body },
-        data,
-      }),
+      body: JSON.stringify(payload),
     });
   } catch (err) {
     console.error("❌ OneSignal send error:", err);
   }
 }
 
+function manilaNowISO() {
+  const now = new Date();
+  const manila = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  return manila.toISOString();
+}
+
 export async function POST(req) {
   try {
     const { card_number, consent = false } = await req.json();
-    const cleanCard = String(card_number).trim();
-
+    const cleanCard = String(card_number || "").trim();
     if (!cleanCard) {
-      return new Response(
-        JSON.stringify({ success: false, error: "card_number is required" }),
-        { status: 400 }
-      );
+      return new Response(JSON.stringify({ success: false, error: "card_number is required" }), { status: 400 });
     }
 
     console.log("🔹 Scanned card:", cleanCard);
 
-    // ✅ Step 1: Get RFID card
     let { data: cardData, error: cardError } = await supabase
       .from("rfid_card")
       .select("id, student_id, card_number")
@@ -66,23 +83,128 @@ export async function POST(req) {
       cardData = newCard;
     }
 
-    // ✅ Step 2: Determine time-in / time-out
-    let action = "time-in";
     const { data: lastLog } = await supabase
       .from("log")
-      .select("action")
+      .select("action, time_stamp")
       .eq("rfid_card_id", cardData.id)
       .order("time_stamp", { ascending: false })
       .limit(1)
       .single();
 
+    let action = "time-in";
     if (lastLog?.action === "time-in") action = "time-out";
 
-    // ✅ Step 3: Insert new log
     const now = new Date();
-    const philippineTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
-    const isoTime = philippineTime.toISOString();
+    const manila = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+    const manilaHour = manila.getHours();
+    const isLunchWindow = manilaHour === 12;
 
+    // ✅ LUNCH CONSENT REQUEST
+    if (isLunchWindow) {
+      const isoTime = manila.toISOString();
+      const { data: provisionalLog, error: insertErr } = await supabase
+        .from("log")
+        .insert([
+          {
+            rfid_card_id: cardData.id,
+            action: "lunch-request",
+            consent: null,
+            time_stamp: isoTime,
+            issue_at: isoTime,
+            student_id: cardData.student_id,
+            metadata: { via: "rfid-scan", reason: "lunch-consent-request" },
+          },
+        ])
+        .select("*")
+        .single();
+
+      if (insertErr) throw insertErr;
+
+      const { data: student } = await supabase
+        .from("student")
+        .select("id, first_name, last_name, users_id")
+        .eq("id", cardData.student_id)
+        .single();
+
+      if (student?.users_id) {
+        const { data: parent } = await supabase
+          .from("users")
+          .select("id, first_name, onesignal_player_id")
+          .eq("id", student.users_id)
+          .eq("role", "parent")
+          .single();
+
+        if (parent) {
+          const title = `Lunch Permission: ${student.first_name} ${student.last_name}`;
+          const body = `Allow ${student.first_name} to go out for lunch? Tap Yes or No.`;
+
+          await supabase.from("notifications").insert([
+            {
+              user_id: parent.id,
+              title,
+              message: body,
+              type: "lunch-consent",
+              is_read: false,
+              created_at: isoTime,
+            },
+          ]);
+
+          await sendOneSignalNotification(
+            parent.onesignal_player_id,
+            title,
+            body,
+            { type: "lunch-consent", student_id: student.id, parent_id: parent.id, log_id: provisionalLog.id },
+            true
+          );
+
+          console.log("✅ Lunch consent request sent for parent", parent.id);
+
+          // 🕐 AUTO-NO fallback after 1 minute if parent doesn't respond
+          setTimeout(async () => {
+            try {
+              const { data: currentLog } = await supabase
+                .from("log")
+                .select("id, consent, action")
+                .eq("id", provisionalLog.id)
+                .single();
+
+              if (currentLog && currentLog.consent === null) {
+                const nowISO = manilaNowISO();
+                await supabase
+                  .from("log")
+                  .update({
+                    action: "time-in",
+                    consent: false,
+                    updated_at: nowISO,
+                  })
+                  .eq("id", provisionalLog.id);
+
+                await supabase.from("notifications").insert([
+                  {
+                    user_id: parent.id,
+                    title: "Lunch Permission: Auto-Denied",
+                    message:
+                      "No response received within 1 minute. Your child remains marked as time-in.",
+                    type: "info",
+                    is_read: false,
+                    created_at: nowISO,
+                  },
+                ]);
+
+                console.log("⏱️ Auto-denied lunch request for log:", provisionalLog.id);
+              }
+            } catch (err) {
+              console.error("⚠️ Auto-deny error:", err.message);
+            }
+          }, 60 * 1000); // 1 minute
+        }
+      }
+
+      return new Response(JSON.stringify({ success: true, message: "Lunch consent requested", log: provisionalLog }), { status: 200 });
+    }
+
+    // ✅ Normal scan (time-in/time-out)
+    const isoTime = manila.toISOString();
     const { data: newLog } = await supabase
       .from("log")
       .insert([
@@ -98,10 +220,9 @@ export async function POST(req) {
       .select("*")
       .single();
 
-    // ✅ Step 4: Get student + parent info (WITH student image)
     const { data: student } = await supabase
       .from("student")
-      .select("id, first_name, last_name, student_pic, grade_level, section, users_id")
+      .select("id, first_name, last_name, users_id")
       .eq("id", cardData.student_id)
       .single();
 
@@ -114,17 +235,9 @@ export async function POST(req) {
         .single();
 
       if (parent) {
-        const title =
-          action === "time-in"
-            ? `Time In: ${student.first_name} ${student.last_name}`
-            : `Time Out: ${student.first_name} ${student.last_name}`;
+        const title = newLog.action === "time-in" ? `Time In: ${student.first_name}` : `Time Out: ${student.first_name}`;
+        const body = newLog.action === "time-in" ? `${student.first_name} has entered the school.` : `${student.first_name} has left the school.`;
 
-        const body =
-          action === "time-in"
-            ? `${student.first_name} has entered the school.`
-            : `${student.first_name} has left the school.`;
-
-        // ✅ Step 5: Insert notification record
         await supabase.from("notifications").insert([
           {
             user_id: parent.id,
@@ -136,41 +249,28 @@ export async function POST(req) {
           },
         ]);
 
-        console.log("✅ Notification inserted for parent", parent.id);
-
-        // ✅ Step 6: Send OneSignal push
         if (parent.onesignal_player_id) {
           await sendOneSignalNotification(
             parent.onesignal_player_id,
             title,
             body,
-            { student_id: student.id, action }
+            { student_id: student.id, action: newLog.action },
+            false
           );
         }
       }
     }
 
-    // ✅ Step 7: Return response with student details + image (for modal)
     return new Response(
       JSON.stringify({
         success: true,
         log: newLog,
-        student: {
-          id: student?.id,
-          first_name: student?.first_name,
-          last_name: student?.last_name,
-          grade_level: student?.grade_level,
-          section: student?.section,
-          student_pic: student?.student_pic || null, // ✅ added image
-        },
+        student: student || null,
       }),
       { status: 200 }
     );
   } catch (err) {
     console.error("❌ RFID scan error:", err);
-    return new Response(
-      JSON.stringify({ success: false, error: err.message }),
-      { status: 500 }
-    );
+    return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500 });
   }
 }

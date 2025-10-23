@@ -1,109 +1,120 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../supabaseClient"; // adjust the path if needed
+import { supabase } from "../supabaseClient";
+import { Settings, LogOut, Menu, X } from "lucide-react";
 
 export default function Header() {
-  const [time, setTime] = useState("--:--:--");
-  const [date, setDate] = useState("Loading...");
-  const [officer, setOfficer] = useState("Loading...");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const router = useRouter();
 
-  // 🕒 Update time & date every second
-  useEffect(() => {
-    const updateTime = () => {
-      const now = new Date();
-      setTime(
-        now.toLocaleTimeString("en-US", {
-          hour12: false,
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        })
-      );
-      setDate(
-        now.toLocaleDateString("en-US", {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-        })
-      );
-    };
-
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // 👮‍♂️ Fetch logged-in user's first & last name
-  useEffect(() => {
-    const getUser = async () => {
-      const { data, error } = await supabase.auth.getUser();
-
-      if (error || !data.user) {
-        router.push("/"); // redirect if not logged in
-      } else {
-        const metadata = data.user.user_metadata || {};
-
-        // Combine first and last name if available
-        const firstName = metadata.first_name || "";
-        const lastName = metadata.last_name || "";
-        const fullName =
-          (firstName || lastName)
-            ? `${firstName} ${lastName}`.trim()
-            : data.user.email || "Officer";
-
-        setOfficer(fullName);
-      }
-    };
-
-    getUser();
-  }, [router]);
-
-  // 🚪 Logout handler
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push("/");
   };
 
+  const toggleDropdown = (e) => {
+    e.preventDefault(); // prevent default link behavior
+    setDropdownOpen((prev) => !prev);
+  };
+
+  const toggleMobileMenu = () => setMobileMenuOpen((prev) => !prev);
+
+  // Close dropdown/menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!event.target.closest(".dropdown-container")) {
+        setDropdownOpen(false);
+      }
+      if (!event.target.closest(".mobile-menu")) {
+        setMobileMenuOpen(false);
+      }
+    };
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, []);
+
   return (
-    <header className="bg-[#58181F] border-b border-gray-200">
-      <div className="px-8 flex items-center justify-between w-full py-4">
-        {/* Left side */}
-        <div>
-          <h1 className="text-3xl font-bold text-white">
+    <header className="bg-gradient-to-r from-[#800000] via-[#9c1c1c] to-[#b22222] shadow-md border-b border-[#5a0a0a] z-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between">
+        {/* --- Logo / Title --- */}
+        <div className="text-white">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">
             SPC BED Security Command
           </h1>
-          <p className="text-white/80 text-sm">
+          <p className="text-white/80 text-xs sm:text-sm">
             Advanced Monitoring & Control Center
           </p>
         </div>
 
-        {/* Right side */}
-        <div className="flex items-center space-x-9">
-          {/* Time + Date */}
-          <div className="text-center">
-            <div className="text-2xl font-bold text-white">{time}</div>
-            <div className="text-sm text-white">{date}</div>
-          </div>
+        {/* --- Desktop Settings Dropdown --- */}
+        <div className="hidden sm:flex items-center gap-4 sm:gap-6">
+          <div className="relative dropdown-container">
+            <a
+              href="#"
+              onClick={toggleDropdown}
+              className="flex items-center gap-2 bg-white text-[#800000] font-semibold px-4 py-2 rounded-lg hover:bg-gray-100 active:scale-95 transition text-sm"
+            >
+              <Settings size={18} />
+              <span>Settings</span>
+            </a>
 
-          {/* Officer Info */}
-          <div className="text-right">
-            <div className="text-sm text-white">Security Officer</div>
-            <div className="font-bold text-white text-lg">{officer}</div>
+            {dropdownOpen && (
+              <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden animate-fadeIn z-50">
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-[#800000] hover:bg-gray-100 text-sm font-medium transition"
+                >
+                  <LogOut size={16} />
+                  Logout
+                </button>
+              </div>
+            )}
           </div>
+        </div>
 
-          {/* Logout Button */}
+        {/* --- Mobile Hamburger --- */}
+        <div className="sm:hidden">
           <button
-            onClick={handleLogout}
-            className="bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 rounded-lg transition"
+            onClick={toggleMobileMenu}
+            className="text-white focus:outline-none"
           >
-            Logout
+            {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
         </div>
       </div>
+
+      {/* --- Mobile Menu --- */}
+      {mobileMenuOpen && (
+        <div className="sm:hidden mobile-menu bg-white border-t border-gray-200">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2 px-4 py-3 text-[#800000] hover:bg-gray-100 text-sm font-medium transition"
+          >
+            <LogOut size={16} />
+            Logout
+          </button>
+        </div>
+      )}
+
+      {/* Animation for dropdown */}
+      <style jsx>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-5px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.15s ease-in-out;
+        }
+      `}</style>
     </header>
   );
 }

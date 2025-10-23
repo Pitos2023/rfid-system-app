@@ -20,7 +20,6 @@ export default function LoginPage() {
   ========================================================= */
   useEffect(() => {
     const loadOneSignal = () => {
-      // Prevent duplicate script loading
       if (window.OneSignalLoaded) return;
       window.OneSignalLoaded = true;
 
@@ -59,6 +58,48 @@ export default function LoginPage() {
   }, []);
 
   /* =========================================================
+     🔹 Protect Routes for Admin & Assistant Principal
+  ========================================================= */
+  useEffect(() => {
+    const protectRoutes = async () => {
+      const { data } = await supabase.auth.getSession();
+      const user = data?.session?.user;
+
+      // no session → always redirect to login
+      if (!user) {
+        router.push("/");
+        return;
+      }
+
+      // get user role from table
+      const { data: userRow } = await supabase
+        .from("users")
+        .select("role")
+        .eq("email", user.email)
+        .single();
+
+      const role = userRow?.role?.toLowerCase();
+
+      // protect /admin route
+      if (window.location.pathname.startsWith("/admin") && role !== "admin") {
+        router.push("/");
+        return;
+      }
+
+      // protect /assistant route
+      if (
+        window.location.pathname.startsWith("/assistant") &&
+        role !== "assistant_principal"
+      ) {
+        router.push("/");
+        return;
+      }
+    };
+
+    protectRoutes();
+  }, [router]);
+
+  /* =========================================================
      🔹 Handle Login & Trigger Notification Permission
   ========================================================= */
   const handleSubmit = async (e) => {
@@ -85,7 +126,6 @@ export default function LoginPage() {
         return;
       }
 
-      const user = data.user;
       const { data: userRow, error: fetchError } = await supabase
         .from("users")
         .select("id, role, first_name, email")
@@ -98,13 +138,13 @@ export default function LoginPage() {
         return;
       }
 
-      // Save user to localStorage for Notifications.jsx
+      // Save user to localStorage
       localStorage.setItem("user", JSON.stringify(userRow));
 
       const role = userRow?.role?.toLowerCase() || "user";
       setSuccess(`✅ Welcome back, ${userRow?.first_name || "User"}!`);
 
-      // 🔔 Ask for OneSignal permission AFTER successful login
+      // 🔔 Ask OneSignal permission AFTER successful login
       if (window.OneSignalDeferred) {
         window.OneSignalDeferred.push(async (OneSignal) => {
           try {

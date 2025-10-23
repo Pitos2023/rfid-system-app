@@ -14,7 +14,8 @@ export default function ActivityLog({ user }) {
         const data = await res.json();
         console.log("✅ Logs fetched:", data);
 
-        if (Array.isArray(data.logs)) {
+        if (data?.success && Array.isArray(data.logs)) {
+          // Filter logs belonging to this parent’s student(s)
           const filtered = data.logs.filter(
             (log) => log.student?.users_id === user?.id
           );
@@ -23,13 +24,13 @@ export default function ActivityLog({ user }) {
           console.error("Unexpected logs format:", data);
         }
       } catch (err) {
-        console.error("Error fetching logs:", err);
+        console.error("❌ Error fetching logs:", err);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchLogs();
+    if (user?.id) fetchLogs();
   }, [user?.id]);
 
   if (loading)
@@ -37,8 +38,7 @@ export default function ActivityLog({ user }) {
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-md">
-
-
+      {/* Filter Buttons */}
       <div className="flex gap-2 mb-4">
         {["today", "week", "month"].map((f) => (
           <button
@@ -55,30 +55,38 @@ export default function ActivityLog({ user }) {
         ))}
       </div>
 
+      {/* Table */}
       <div className="overflow-x-auto rounded-lg border border-gray-200">
         <table className="min-w-full border-collapse">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="text-left py-3 px-4 font-semibold text-gray-700">Student</th>
-              <th className="text-left py-3 px-4 font-semibold text-gray-700">Date & Time</th>
-              <th className="text-left py-3 px-4 font-semibold text-gray-700">Grade & Section</th>
-              <th className="text-left py-3 px-4 font-semibold text-gray-700">Action</th>
-              <th className="text-left py-3 px-4 font-semibold text-gray-700">Consent</th>
+              <th className="text-left py-3 px-4 font-semibold text-gray-700">
+                Student
+              </th>
+              <th className="text-left py-3 px-4 font-semibold text-gray-700">
+                Date & Time
+              </th>
+              <th className="text-left py-3 px-4 font-semibold text-gray-700">
+                Grade & Section
+              </th>
+              <th className="text-left py-3 px-4 font-semibold text-gray-700">
+                Action
+              </th>
+              <th className="text-left py-3 px-4 font-semibold text-gray-700">
+                Consent
+              </th>
             </tr>
           </thead>
+
           <tbody>
             {logs.length === 0 ? (
               <tr>
-                <td
-                  colSpan="5"
-                  className="py-6 text-center text-gray-500 italic"
-                >
+                <td colSpan="5" className="py-6 text-center text-gray-500 italic">
                   No activity found for {filter === "today" ? "today" : filter}.
                 </td>
               </tr>
             ) : (
               logs.map((log) => {
-                // ✅ Normalize value to handle "time_in", "time-in", "Time In"
                 const actionValue = log.action?.toLowerCase().replace("_", "-");
 
                 return (
@@ -86,12 +94,27 @@ export default function ActivityLog({ user }) {
                     key={log.id}
                     className="border-b hover:bg-gray-50 transition-colors"
                   >
-                    <td className="py-3 px-4 font-bold text-gray-800">
-                      {`${log.student?.first_name || ""} ${
-                        log.student?.last_name || ""
-                      }`}
+                    {/* ✅ Student with Image */}
+                    <td className="py-3 px-4 flex items-center gap-3">
+                      {log.student?.student_pic ? (
+                        <img
+                          src={log.student.student_pic}
+                          alt={`${log.student.first_name} ${log.student.last_name}`}
+                          className="w-10 h-10 rounded-full object-cover border"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 font-bold">
+                          {log.student?.first_name?.[0] || "?"}
+                        </div>
+                      )}
+                      <div className="font-bold text-gray-800">
+                        {`${log.student?.first_name || ""} ${
+                          log.student?.last_name || ""
+                        }`}
+                      </div>
                     </td>
 
+                    {/* Date & Time */}
                     <td className="py-3 px-4 text-gray-600 text-sm">
                       {new Date(log.time_stamp).toLocaleDateString("en-US", {
                         month: "short",
@@ -107,10 +130,12 @@ export default function ActivityLog({ user }) {
                       </span>
                     </td>
 
+                    {/* Grade & Section */}
                     <td className="py-3 px-4 text-gray-700">
                       Grade {log.student?.grade_level} - {log.student?.section}
                     </td>
 
+                    {/* Action */}
                     <td
                       className={`py-3 px-4 font-semibold ${
                         actionValue === "time-in"
@@ -121,6 +146,7 @@ export default function ActivityLog({ user }) {
                       {actionValue === "time-in" ? "Time In" : "Time Out"}
                     </td>
 
+                    {/* Consent */}
                     <td className="py-3 px-4 font-semibold flex items-center gap-1">
                       {log.consent ? (
                         <span className="text-green-600">✔ Yes</span>

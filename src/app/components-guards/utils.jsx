@@ -1,4 +1,4 @@
-// Sample students (use images instead of emojis)
+// Sample students (avatars)
 export const sampleStudents = [
   {
     id: "2024-09-001",
@@ -30,8 +30,7 @@ export const sampleStudents = [
   },
 ];
 
-
-// Notifications
+// Admin notifications
 export const adminNotifications = [
   {
     id: 1,
@@ -53,7 +52,7 @@ export const adminNotifications = [
   },
 ];
 
-// School events with date
+// School events
 export const schoolEvents = [
   {
     date: "2025-09-01",
@@ -69,24 +68,23 @@ export const schoolEvents = [
     message: "Please be reminded that first quarter examinations will run from Sept 3 to Sept 7.",
     author: "Academic Affairs",
   },
-
 ];
 
-// Sick leave students with reported date
+// Sick leave students
 export const sickLeaveStudents = [
   { name: "Maria Gonzalez", grade: "8-B", reason: "Fever", reported: "7:30 AM", date: "2025-08-31" },
   { name: "Pedro Alvarez", grade: "10-A", reason: "Stomach flu", reported: "8:15 AM", date: "2025-08-30" },
   { name: "Carmen Lopez", grade: "9-C", reason: "Headache", reported: "9:00 AM", date: "2025-08-27" },
 ];
 
-// Dashboard stats
+// Dashboard stats (maroon theme)
 export const stats = [
-  { title: "Students Present", value: 247, icon: "👥", color: "bg-green-100", note: "Currently In School" },
-  { title: "Total Activity", value: 331, icon: "📊", color: "bg-blue-100", note: "↗️ +15 in last hour" },
-  { title: "Sick Leave", value: 8, icon: "🏥", color: "bg-red-100", note: "Absent Today" },
+  { title: "Students Present", value: 247, icon: "👥", color: "bg-[#800000]", note: "Currently In School" },
+  { title: "Total Activity", value: 331, icon: "📊", color: "bg-[#9c1c1c]", note: "↗️ +15 in last hour" },
+  { title: "Sick Leave", value: 8, icon: "🏥", color: "bg-[#b22222]", note: "Absent Today" },
 ];
 
-
+// Helper to get start/end of day
 const startOfDay = (date) => {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -123,7 +121,7 @@ export function filterThisWeek(data) {
   start.setHours(0, 0, 0, 0);
 
   const end = new Date(start);
-  end.setDate(start.getDate() + 7);
+  end.setDate(start.getDate() + 6); // Saturday
   end.setHours(23, 59, 59, 999);
 
   return data.filter((item) => {

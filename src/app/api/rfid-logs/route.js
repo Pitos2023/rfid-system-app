@@ -7,24 +7,24 @@ const supabase = createClient(
 
 export async function GET() {
   try {
-    // ✅ Fetch all logs with relationships
     const { data: logs, error } = await supabase
       .from("log")
       .select(`
         id,
-        rfid_card_id,
-        student_id,
-        action,
-        consent,
         time_stamp,
         issue_at,
+        consent,
+        action,
+        rfid_card_id,
+        student_id,
         student (
           id,
           first_name,
           last_name,
           grade_level,
           section,
-          student_pic
+          student_pic,
+          users_id
         ),
         rfid_card (
           id,
@@ -35,7 +35,6 @@ export async function GET() {
 
     if (error) throw error;
 
-    // ✅ Handle missing relations gracefully
     const safeLogs = (logs || []).map((log) => ({
       ...log,
       student: log.student || null,
@@ -43,10 +42,7 @@ export async function GET() {
     }));
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        logs: safeLogs,
-      }),
+      JSON.stringify({ success: true, logs: safeLogs }),
       { status: 200 }
     );
   } catch (err) {
