@@ -1,90 +1,21 @@
-// Sample students (avatars)
-export const sampleStudents = [
-  {
-    id: "2024-09-001",
-    name: "Juan Santos",
-    grade: "9-A",
-    rfid: "RF001234567",
-    avatar: "/inoske.jpg", // boy
-  },
-  {
-    id: "2024-07-002",
-    name: "Ana Santos",
-    grade: "7-B",
-    rfid: "RF001234568",
-    avatar: "/halloween fuyutsi.png", // girl
-  },
-  {
-    id: "2024-10-003",
-    name: "Miguel Rodriguez",
-    grade: "10-C",
-    rfid: "RF001234569",
-    avatar: "/inoske.jpg", // boy
-  },
-  {
-    id: "2024-08-004",
-    name: "Sofia Cruz",
-    grade: "8-A",
-    rfid: "RF001234570",
-    avatar: "/halloween fuyutsi.png", // girl
-  },
-];
+"use client";
 
-// Admin notifications
-export const adminNotifications = [
-  {
-    id: 1,
-    type: "urgent",
-    title: "Fire Drill Scheduled",
-    message: "Fire drill at 2:00 PM today.",
-    from: "Assistant Principal",
-    date: "2025-08-31",
-    time: "10:00 AM",
-  },
-  {
-    id: 2,
-    type: "info",
-    title: "Parent Meeting Today",
-    message: "Parent-teacher conference 3:00-5:00 PM.",
-    from: "Principal",
-    date: "2025-08-31",
-    time: "11:15 AM",
-  },
-];
+import { createClient } from "@supabase/supabase-js";
 
-// School events
-export const schoolEvents = [
-  {
-    date: "2025-09-01",
-    time: "9:00 AM",
-    title: "General Meeting for Parents",
-    message: "A general assembly for all parents will be held at the school gym.",
-    author: "School Administration",
-  },
-  {
-    date: "2025-09-03",
-    time: "All Day",
-    title: "First Quarter Exam Week",
-    message: "Please be reminded that first quarter examinations will run from Sept 3 to Sept 7.",
-    author: "Academic Affairs",
-  },
-];
+// ✅ Initialize Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
-// Sick leave students
-export const sickLeaveStudents = [
-  { name: "Maria Gonzalez", grade: "8-B", reason: "Fever", reported: "7:30 AM", date: "2025-08-31" },
-  { name: "Pedro Alvarez", grade: "10-A", reason: "Stomach flu", reported: "8:15 AM", date: "2025-08-30" },
-  { name: "Carmen Lopez", grade: "9-C", reason: "Headache", reported: "9:00 AM", date: "2025-08-27" },
-];
-
-// Dashboard stats (maroon theme)
+// ✅ Dashboard stats (maroon theme)
 export const stats = [
   { title: "Students Present", value: 247, icon: "👥", color: "bg-[#800000]", note: "Currently In School" },
   { title: "Total Activity", value: 331, icon: "📊", color: "bg-[#9c1c1c]", note: "↗️ +15 in last hour" },
   { title: "Sick Leave", value: 8, icon: "🏥", color: "bg-[#b22222]", note: "Absent Today" },
 ];
 
-// Helper to get start/end of day
+// ✅ Helper to get start/end of day
 const startOfDay = (date) => {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -98,7 +29,7 @@ const endOfDay = (date) => {
 };
 
 /**
- * Filter entries by "today"
+ * ✅ Filter entries by "today"
  */
 export function filterToday(data) {
   const now = new Date();
@@ -112,7 +43,7 @@ export function filterToday(data) {
 }
 
 /**
- * Filter entries by "this week"
+ * ✅ Filter entries by "this week"
  */
 export function filterThisWeek(data) {
   const now = new Date();
@@ -131,7 +62,7 @@ export function filterThisWeek(data) {
 }
 
 /**
- * Filter entries by "this month"
+ * ✅ Filter entries by "this month"
  */
 export function filterThisMonth(data) {
   const now = new Date();
@@ -142,4 +73,55 @@ export function filterThisMonth(data) {
     const itemDate = new Date(item.date);
     return itemDate >= start && itemDate <= end;
   });
+}
+
+/**
+ * ✅ Dynamic School Events Fetcher
+ * Fetch notifications created by NotificationComposer.jsx
+ * - Shows only type = "announcement" or "urgent"
+ * - Skips duplicates and invalid entries
+ */
+export async function fetchSchoolEvents(userRole = "guard") {
+  try {
+    // Fetch notifications for this role or all
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("id, title, message, created_at, type")
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    // ✅ Filter by allowed types only (announcement, urgent)
+    const filtered = (data || [])
+      .filter(
+        (n) =>
+          n.type &&
+          ["announcement", "urgent"].includes(n.type.toLowerCase()) &&
+          n.title &&
+          n.message
+      )
+      // ✅ Remove possible duplicates by ID
+      .reduce((acc, curr) => {
+        if (!acc.find((x) => x.id === curr.id)) acc.push(curr);
+        return acc;
+      }, []);
+
+    // ✅ Format to old style event data
+    return filtered.map((n) => ({
+      date: new Date(n.created_at).toISOString().split("T")[0],
+      time: new Date(n.created_at).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      title: n.title,
+      message: n.message,
+      author:
+        n.type === "urgent"
+          ? "School Admin (Urgent)"
+          : "School Administration",
+    }));
+  } catch (err) {
+    console.error("❌ Error fetching school events:", err.message || err);
+    return [];
+  }
 }

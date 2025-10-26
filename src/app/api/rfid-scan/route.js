@@ -60,12 +60,14 @@ export async function POST(req) {
   try {
     const { card_number, consent = false } = await req.json();
     const cleanCard = String(card_number || "").trim();
+
     if (!cleanCard) {
       return new Response(JSON.stringify({ success: false, error: "card_number is required" }), { status: 400 });
     }
 
     console.log("🔹 Scanned card:", cleanCard);
 
+    // Check if RFID card exists
     let { data: cardData, error: cardError } = await supabase
       .from("rfid_card")
       .select("id, student_id, card_number")
@@ -74,6 +76,7 @@ export async function POST(req) {
 
     if (cardError && cardError.code !== "PGRST116") throw cardError;
 
+    // Create new RFID card if not found
     if (!cardData) {
       const { data: newCard } = await supabase
         .from("rfid_card")
@@ -81,8 +84,19 @@ export async function POST(req) {
         .select("id, student_id, card_number")
         .single();
       cardData = newCard;
+      console.log("🆕 New RFID card created:", newCard);
     }
 
+    // If card not linked to a student yet
+    if (!cardData.student_id) {
+      console.warn("⚠️ Card not linked to a student:", cardData.card_number);
+      return new Response(
+        JSON.stringify({ success: false, error: "RFID card not linked to a student." }),
+        { status: 404 }
+      );
+    }
+
+    // Get last log for this card
     const { data: lastLog } = await supabase
       .from("log")
       .select("action, time_stamp")
@@ -97,11 +111,12 @@ export async function POST(req) {
     const now = new Date();
     const manila = new Date(now.getTime() + 8 * 60 * 60 * 1000);
     const manilaHour = manila.getHours();
-    const isLunchWindow = manilaHour === 12;
+    const isLunchWindow = manilaHour === 12; // 12 noon
 
     // ✅ LUNCH CONSENT REQUEST
     if (isLunchWindow) {
       const isoTime = manila.toISOString();
+
       const { data: provisionalLog, error: insertErr } = await supabase
         .from("log")
         .insert([
@@ -157,9 +172,9 @@ export async function POST(req) {
             true
           );
 
-          console.log("✅ Lunch consent request sent for parent", parent.id);
+          console.log("✅ Lunch consent request sent to parent:", parent.id);
 
-          // 🕐 AUTO-NO fallback after 1 minute if parent doesn't respond
+          // 🕐 AUTO-DENY after 1 minute if no response
           setTimeout(async () => {
             try {
               const { data: currentLog } = await supabase
@@ -183,8 +198,7 @@ export async function POST(req) {
                   {
                     user_id: parent.id,
                     title: "Lunch Permission: Auto-Denied",
-                    message:
-                      "No response received within 1 minute. Your child remains marked as time-in.",
+                    message: "No response received within 1 minute. Your child remains marked as time-in.",
                     type: "info",
                     is_read: false,
                     created_at: nowISO,
@@ -196,14 +210,17 @@ export async function POST(req) {
             } catch (err) {
               console.error("⚠️ Auto-deny error:", err.message);
             }
-          }, 60 * 1000); // 1 minute
+          }, 60 * 1000);
         }
       }
 
-      return new Response(JSON.stringify({ success: true, message: "Lunch consent requested", log: provisionalLog }), { status: 200 });
+      return new Response(
+        JSON.stringify({ success: true, message: "Lunch consent requested", log: provisionalLog }),
+        { status: 200 }
+      );
     }
 
-    // ✅ Normal scan (time-in/time-out)
+    // ✅ NORMAL TIME-IN / TIME-OUT
     const isoTime = manila.toISOString();
     const { data: newLog } = await supabase
       .from("log")
@@ -236,7 +253,10 @@ export async function POST(req) {
 
       if (parent) {
         const title = newLog.action === "time-in" ? `Time In: ${student.first_name}` : `Time Out: ${student.first_name}`;
-        const body = newLog.action === "time-in" ? `${student.first_name} has entered the school.` : `${student.first_name} has left the school.`;
+        const body =
+          newLog.action === "time-in"
+            ? `${student.first_name} has entered the school.`
+            : `${student.first_name} has left the school.`;
 
         await supabase.from("notifications").insert([
           {

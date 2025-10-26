@@ -14,14 +14,12 @@ export default function NotificationComposer() {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
 
-  // 🔹 Fetch available grade levels
   useEffect(() => {
     const fetchGrades = async () => {
       const { data, error } = await supabase
         .from("student")
         .select("grade_level")
         .order("grade_level", { ascending: true });
-
       if (!error && data) {
         const uniqueGrades = [...new Set(data.map((s) => s.grade_level))];
         setGrades(uniqueGrades);
@@ -30,11 +28,9 @@ export default function NotificationComposer() {
     fetchGrades();
   }, []);
 
-  // 🔹 Subtype options
   const announcementSubtypes = ["School Event", "Exam", "Holiday", "General"];
   const urgentSubtypes = ["Parent Meeting", "Disaster", "Emergency"];
 
-  // 🔹 Auto-fill templates
   useEffect(() => {
     if (type === "announcement") {
       switch (subType) {
@@ -73,7 +69,6 @@ export default function NotificationComposer() {
     }
   }, [type, subType]);
 
-  // 🔹 Send handler
   const handleSend = async () => {
     if (!title || !message) {
       alert("Please fill in both title and message fields.");
@@ -84,35 +79,27 @@ export default function NotificationComposer() {
     setStatus("");
 
     try {
-      let { data: users, error: usersError } = await supabase
+      const { data: usersData, error: usersError } = await supabase
         .from("users")
-        .select("id, role, student_id");
-
+        .select("id, role, email, full_name");
       if (usersError) throw usersError;
 
       let targetUsers = [];
 
-      // ✅ Determine recipients
-      if (sendTo === "parents") {
-        targetUsers = users.filter((u) => u.role === "parent");
-      } else if (sendTo === "guards") {
-        targetUsers = users.filter((u) => u.role === "guard");
-      } else if (sendTo === "both") {
-        targetUsers = users.filter((u) => u.role === "parent" || u.role === "guard");
-      }
+      if (sendTo === "parents") targetUsers = usersData.filter((u) => u.role === "parent");
+      else if (sendTo === "guards") targetUsers = usersData.filter((u) => u.role === "guard");
+      else if (sendTo === "both") targetUsers = usersData.filter((u) => u.role === "parent" || u.role === "guard");
 
-      // ✅ Filter parents by grade level if selected
       if (sendTo !== "guards" && gradeLevel !== "All") {
-        const { data: students } = await supabase
+        const { data: studentData, error: studentError } = await supabase
           .from("student")
-          .select("id, grade_level")
+          .select("users_id, grade_level")
           .eq("grade_level", gradeLevel);
-
-        const gradeStudentIds = students.map((s) => s.id);
-        targetUsers = targetUsers.filter((u) => gradeStudentIds.includes(u.student_id));
+        if (studentError) throw studentError;
+        const studentUserIds = studentData.map((s) => s.users_id);
+        targetUsers = targetUsers.filter((u) => studentUserIds.includes(u.id));
       }
 
-      // ✅ Insert notifications
       const notifications = targetUsers.map((user) => ({
         user_id: user.id,
         title,
@@ -130,7 +117,7 @@ export default function NotificationComposer() {
         setStatus("⚠️ No target users found for this selection.");
       }
     } catch (err) {
-      console.error(err);
+      console.error("❌ Notification send error:", err.message || err);
       setStatus("❌ Failed to send notifications.");
     } finally {
       setLoading(false);
@@ -139,51 +126,46 @@ export default function NotificationComposer() {
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-md">
-      <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-        {type === "announcement" ? <Megaphone /> : <AlertTriangle />}
+      <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-black">
+        {type === "announcement" ? <Megaphone color="black" /> : <AlertTriangle color="black" />}
         Compose Notification
       </h2>
 
-      {/* Type */}
       <div className="mb-3">
-        <label className="font-semibold">Type:</label>
+        <label className="font-semibold text-black">Type:</label>
         <select
           value={type}
-          onChange={(e) => {
-            setType(e.target.value);
-            setSubType("");
-          }}
-          className="ml-2 border rounded px-2 py-1"
+          onChange={(e) => { setType(e.target.value); setSubType(""); }}
+          className="ml-2 border rounded px-2 py-1 text-black placeholder-black border-black focus:ring-black focus:border-black"
+          style={{ color: "black" }}
         >
           <option value="announcement">Announcement</option>
           <option value="urgent">Urgent</option>
         </select>
       </div>
 
-      {/* Subtype */}
       <div className="mb-3">
-        <label className="font-semibold">Subtype:</label>
+        <label className="font-semibold text-black">Subtype:</label>
         <select
           value={subType}
           onChange={(e) => setSubType(e.target.value)}
-          className="ml-2 border rounded px-2 py-1"
+          className="ml-2 border rounded px-2 py-1 text-black placeholder-black border-black focus:ring-black focus:border-black"
+          style={{ color: "black" }}
         >
           <option value="">Select Subtype</option>
           {(type === "announcement" ? announcementSubtypes : urgentSubtypes).map((sub) => (
-            <option key={sub} value={sub}>
-              {sub}
-            </option>
+            <option key={sub} value={sub}>{sub}</option>
           ))}
         </select>
       </div>
 
-      {/* Send to */}
       <div className="mb-3">
-        <label className="font-semibold">Send To:</label>
+        <label className="font-semibold text-black">Send To:</label>
         <select
           value={sendTo}
           onChange={(e) => setSendTo(e.target.value)}
-          className="ml-2 border rounded px-2 py-1"
+          className="ml-2 border rounded px-2 py-1 text-black placeholder-black border-black focus:ring-black focus:border-black"
+          style={{ color: "black" }}
         >
           <option value="parents">Parents</option>
           <option value="guards">Guards</option>
@@ -191,36 +173,34 @@ export default function NotificationComposer() {
         </select>
       </div>
 
-      {/* Grade level */}
       {sendTo !== "guards" && (
         <div className="mb-3">
-          <label className="font-semibold">Grade Level:</label>
+          <label className="font-semibold text-black">Grade Level:</label>
           <select
             value={gradeLevel}
             onChange={(e) => setGradeLevel(e.target.value)}
-            className="ml-2 border rounded px-2 py-1"
+            className="ml-2 border rounded px-2 py-1 text-black placeholder-black border-black focus:ring-black focus:border-black"
+            style={{ color: "black" }}
           >
             <option value="All">All</option>
             {grades.map((grade) => (
-              <option key={grade} value={grade}>
-                {grade}
-              </option>
+              <option key={grade} value={grade}>{grade}</option>
             ))}
           </select>
         </div>
       )}
 
-      {/* Title + Message */}
       <input
         type="text"
         placeholder="Title"
-        className="w-full border rounded px-3 py-2 mb-3"
+        className="w-full border rounded px-3 py-2 mb-3 text-black placeholder-black border-black focus:ring-black focus:border-black"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
       />
+
       <textarea
         placeholder="Message"
-        className="w-full border rounded px-3 py-2 mb-4 h-32"
+        className="w-full border rounded px-3 py-2 mb-4 h-32 text-black placeholder-black border-black focus:ring-black focus:border-black"
         value={message}
         onChange={(e) => setMessage(e.target.value)}
       />
@@ -228,13 +208,14 @@ export default function NotificationComposer() {
       <button
         onClick={handleSend}
         disabled={loading}
-        className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700"
+        className="bg-maroon text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-[#660000]"
+        style={{ backgroundColor: "#800000" }}
       >
         <Send size={16} />
         {loading ? "Sending..." : "Send Notification"}
       </button>
 
-      {status && <p className="mt-3 text-sm">{status}</p>}
+      {status && <p className="mt-3 text-sm text-black">{status}</p>}
     </div>
   );
 }

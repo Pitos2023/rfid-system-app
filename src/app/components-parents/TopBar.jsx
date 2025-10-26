@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Bell, CheckCircle, User, Loader2, X } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
-// Initialize Supabase client
+// ✅ Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -16,12 +16,12 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [waitingNotifs, setWaitingNotifs] = useState({}); // ✅ Track waiting timers
 
   const dropdownRef = useRef(null);
   const profileButtonRef = useRef(null);
   const profileModalRef = useRef(null);
 
-  // Editable form state
   const [formData, setFormData] = useState({
     first_name: users?.first_name || "",
     last_name: users?.last_name || "",
@@ -40,7 +40,7 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
     });
   }, [users]);
 
-  // Fetch notifications
+  // ✅ Fetch notifications with announcements on top
   const fetchNotifications = async () => {
     try {
       setLoading(true);
@@ -55,18 +55,54 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
         return;
       }
 
-      const { data, error } = await supabase
+      const { data: student } = await supabase
+        .from("student")
+        .select("grade_level")
+        .eq("users_id", userId)
+        .maybeSingle();
+
+      const gradeLevel = student?.grade_level || null;
+
+      let { data, error } = await supabase
         .from("notifications")
         .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
+        .or(
+          gradeLevel
+            ? `user_id.eq.${userId},type.eq.announcement,grade_level.eq.${gradeLevel}`
+            : `user_id.eq.${userId},type.eq.announcement`
+        );
 
       if (error) throw error;
 
-      setNotifications(data || []);
-      setUnreadCount(data?.filter((n) => !n.is_read).length || 0);
+      // ✅ Separate announcements and personal notifications
+      const announcements = data.filter((n) => n.type === "announcement");
+      const personal = data.filter((n) => n.type !== "announcement");
+
+      // ✅ Sort each group by created_at descending
+      announcements.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      personal.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      // ✅ Merge: announcements first
+      const sortedData = [...announcements, ...personal];
+
+      setNotifications(sortedData);
+      setUnreadCount(sortedData.filter((n) => !n.is_read).length || 0);
+
+      // Start waiting timer if consent_request appears
+      sortedData.forEach((notif) => {
+        if (
+          notif.type === "consent_request" &&
+          !waitingNotifs[notif.id] &&
+          notif.status !== "responded"
+        ) {
+          const timer = setTimeout(() => {
+            autoDenyConsent(notif);
+          }, 60000);
+          setWaitingNotifs((prev) => ({ ...prev, [notif.id]: timer }));
+        }
+      });
     } catch (err) {
-      console.error("❌ Fetch error:", err);
+      console.error("❌ Fetch notifications error:", err.message || err);
       setNotifications([]);
     } finally {
       setLoading(false);
@@ -75,11 +111,66 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
 
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 5000); // refresh every 5s
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchNotifications, 5000);
+    return () => {
+      clearInterval(interval);
+      Object.values(waitingNotifs).forEach(clearTimeout);
+    };
   }, []);
 
-  // Close dropdowns when clicking outside
+  // ✅ Auto-deny handler
+  const autoDenyConsent = async (notif) => {
+    try {
+      console.log("⏰ Auto-denying:", notif.id);
+      await handleConsentResponse(notif, "no");
+    } catch (err) {
+      console.error("Auto deny failed:", err);
+    }
+  };
+
+  // ✅ Check if lunch time (12–1 PM Manila)
+  const isLunchTime = () => {
+    const now = new Date();
+    const manila = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Manila" }));
+    const hour = manila.getHours();
+    return hour >= 12 && hour < 13;
+  };
+
+  // ✅ Parent consent response
+  const handleConsentResponse = async (notif, response) => {
+    try {
+      const logId = notif?.data?.log_id || notif?.message?.match(/log_id:(\\d+)/)?.[1];
+      const parentId = notif.user_id;
+      if (!logId || !parentId) return;
+
+      // clear waiting timer if any
+      if (waitingNotifs[notif.id]) {
+        clearTimeout(waitingNotifs[notif.id]);
+        setWaitingNotifs((prev) => {
+          const updated = { ...prev };
+          delete updated[notif.id];
+          return updated;
+        });
+      }
+
+      const res = await fetch(
+        `/api/consent-response?log_id=${logId}&response=${response}&parent_id=${parentId}`,
+        { method: "GET" }
+      );
+
+      if (res.ok) {
+        await supabase
+          .from("notifications")
+          .update({ is_read: true, status: "responded" })
+          .eq("id", notif.id);
+        fetchNotifications();
+      }
+    } catch (err) {
+      console.error("Consent response error:", err);
+    }
+  };
+
+  // ✅ Close dropdowns outside click
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -177,208 +268,154 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
 
   return (
     <>
-      <header className="bg-[#800000] text-white shadow-sm border-b border-gray-200 px-4 sm:px-6 py-3 flex justify-between items-center sticky top-0 z-40">
-        {/* LEFT */}
-        <div className="flex items-center space-x-3 sm:space-x-4">
+      <header className="w-full flex justify-between items-center px-6 py-4 bg-white shadow-md relative z-30">
+        {/* Left Section */}
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setSidebarOpen(true)}
-            className="lg:hidden p-2 rounded-lg hover:bg-[#9c1c1c] text-white"
+            onClick={() => setSidebarOpen((prev) => !prev)}
+            className="text-gray-600 hover:text-gray-900 focus:outline-none lg:hidden"
           >
             ☰
           </button>
           <div>
-            <h2 className="text-lg sm:text-2xl font-bold">{titles[currentView]}</h2>
-            <p className="text-xs sm:text-sm">{getSubtitle()}</p>
+            <h1 className="text-xl font-semibold text-gray-800">
+              {titles[currentView] || "Dashboard"}
+            </h1>
+            <p className="text-sm text-gray-500">{getSubtitle()}</p>
           </div>
         </div>
 
-        {/* RIGHT */}
-        <div className="flex items-center space-x-3 sm:space-x-4">
-          {/* Notification */}
+        {/* Right Section */}
+        <div className="flex items-center gap-4">
+          {/* Notification Bell */}
           <div className="relative" ref={dropdownRef}>
             <button
-              onClick={() => {
-                setDropdownOpen(!dropdownOpen);
-                if (!dropdownOpen) markAllAsRead();
-              }}
-              className="relative p-2 rounded-full hover:bg-[#9c1c1c] text-white"
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              className="relative p-2 rounded-full hover:bg-gray-100"
             >
-              <Bell className="w-5 sm:w-6 h-5 sm:h-6" />
+              <Bell className="h-6 w-6 text-gray-700" />
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-5 px-1 text-xs font-bold bg-red-500 rounded-full flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold px-1.5 rounded-full">
                   {unreadCount}
                 </span>
               )}
             </button>
 
             {dropdownOpen && (
-              <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white shadow-lg rounded-xl border border-gray-200 z-50 max-h-80 overflow-y-auto text-gray-800">
-                <div className="p-3 border-b border-gray-100 flex justify-between items-center">
-                  <span className="font-semibold">Notifications</span>
+              <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden">
+                <div className="flex justify-between items-center p-3 border-b">
+                  <span className="font-semibold text-gray-700">Notifications</span>
                   <button
                     onClick={markAllAsRead}
-                    className="text-xs sm:text-sm text-blue-600 hover:underline"
+                    className="text-sm text-blue-600 hover:underline"
                   >
                     Mark all as read
                   </button>
                 </div>
-                {loading ? (
-                  <div className="flex items-center justify-center py-6 text-gray-500">
-                    <Loader2 className="animate-spin mr-2" /> Loading...
-                  </div>
-                ) : notifications.length === 0 ? (
-                  <div className="text-center text-gray-400 py-6">No notifications yet.</div>
-                ) : (
-                  notifications.map((notif) => (
-                    <div
-                      key={notif.id}
-                      className={`p-3 border-b border-gray-100 ${
-                        notif.is_read ? "bg-gray-50" : "bg-white"
-                      } hover:bg-gray-50`}
-                    >
-                      <div className="flex justify-between items-center">
-                        <p className="font-medium">{notif.title}</p>
-                        {!notif.is_read && <CheckCircle className="text-green-500" size={16} />}
-                      </div>
-                      <p className="text-xs sm:text-sm text-gray-600">{notif.message}</p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        {new Intl.DateTimeFormat("en-PH", {
-                          timeZone: "Asia/Manila",
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        }).format(new Date(notif.created_at))}
-                      </p>
+                <div className="max-h-96 overflow-y-auto">
+                  {loading ? (
+                    <div className="p-4 text-center text-gray-500 flex items-center justify-center gap-2">
+                      <Loader2 className="animate-spin h-4 w-4" /> Loading...
                     </div>
-                  ))
-                )}
+                  ) : notifications.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500">
+                      No notifications yet.
+                    </div>
+                  ) : (
+                    notifications.map((notif) => (
+                      <div
+                        key={notif.id}
+                        className={`p-3 border-b last:border-none ${
+                          !notif.is_read ? "bg-gray-50" : "bg-white"
+                        }`}
+                      >
+                        <p className="text-gray-700 text-sm">{notif.message}</p>
+
+                        {isLunchTime() && notif.type === "consent_request" && (
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              onClick={() => handleConsentResponse(notif, "yes")}
+                              className="flex-1 bg-green-500 text-white text-sm py-1 rounded-lg hover:bg-green-600"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => handleConsentResponse(notif, "no")}
+                              className="flex-1 bg-red-500 text-white text-sm py-1 rounded-lg hover:bg-red-600"
+                            >
+                              Deny
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             )}
           </div>
 
           {/* Profile */}
-          <div ref={profileButtonRef}>
-            <button
-              onClick={() => setProfileOpen((v) => !v)}
-              className="p-2 rounded-full hover:bg-[#9c1c1c] text-white"
-            >
-              <User className="w-5 sm:w-6 h-5 sm:h-6" />
-            </button>
-          </div>
+          <button
+            ref={profileButtonRef}
+            onClick={() => setProfileOpen(true)}
+            className="flex items-center gap-2 p-2 rounded-full hover:bg-gray-100"
+          >
+            <User className="h-6 w-6 text-gray-700" />
+          </button>
         </div>
       </header>
 
-      {/* Profile Modal */}
+      {/* ✅ Profile Modal */}
       {profileOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/30 backdrop-blur-sm"
-            onClick={() => setProfileOpen(false)}
-          ></div>
-
+        <div className="fixed inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-50">
           <div
             ref={profileModalRef}
-            className="relative z-50 bg-white rounded-xl shadow-lg w-full max-w-md sm:max-w-2xl p-4 sm:p-6 mx-4 sm:mx-0 overflow-auto"
+            className="bg-white rounded-2xl shadow-2xl p-6 w-11/12 max-w-md relative animate-fadeIn"
           >
             <button
               onClick={() => setProfileOpen(false)}
-              className="absolute top-3 right-3 text-gray-500 hover:text-gray-800"
+              className="absolute top-3 right-3 text-gray-500 hover:text-gray-700"
             >
-              <X className="w-5 h-5" />
+              <X size={20} />
             </button>
 
-            <div className="text-center mb-4">
-              <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-purple-400 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-2 sm:mb-4">
-                <span className="text-white text-2xl sm:text-3xl font-bold">👩</span>
-              </div>
-              <h3 className="text-lg sm:text-2xl font-bold text-gray-800">
-                {users ? `${users.first_name} ${users.last_name}` : "Parent"}
-              </h3>
-              <p className="text-xs sm:text-sm text-gray-600">Parent Account</p>
-            </div>
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">
+              Edit Profile
+            </h2>
 
             <div className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700">
-                    First Name
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.first_name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, first_name: e.target.value })
-                    }
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-xl bg-gray-50 text-gray-800 text-xs sm:text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700">
-                    Last Name
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.last_name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, last_name: e.target.value })
-                    }
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-xl bg-gray-50 text-gray-800 text-xs sm:text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-gray-700">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
-                  }
-                  className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-xl bg-gray-50 text-gray-800 text-xs sm:text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-gray-700">
-                  Contact Number
-                </label>
-                <input
-                  type="text"
-                  value={formData.contact_number}
-                  onChange={(e) =>
-                    setFormData({ ...formData, contact_number: e.target.value })
-                  }
-                  className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-xl bg-gray-50 text-gray-800 text-xs sm:text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-gray-700">
-                  Address
-                </label>
-                <input
-                  type="text"
-                  value={formData.address}
-                  onChange={(e) =>
-                    setFormData({ ...formData, address: e.target.value })
-                  }
-                  className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-xl bg-gray-50 text-gray-800 text-xs sm:text-sm"
-                />
-              </div>
+              {["first_name", "last_name", "email", "contact_number", "address"].map(
+                (field) => (
+                  <div key={field}>
+                    <label className="block text-sm font-medium text-gray-600 capitalize">
+                      {field.replace("_", " ")}
+                    </label>
+                    <input
+                      type="text"
+                      value={formData[field]}
+                      onChange={(e) =>
+                        setFormData({ ...formData, [field]: e.target.value })
+                      }
+                      className="w-full border rounded-lg px-3 py-2 mt-1 text-gray-800 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                )
+              )}
             </div>
 
-            <div className="flex justify-end space-x-3 mt-4">
-              <button
-                onClick={handleSaveProfile}
-                className="px-4 py-2 bg-[#58181F] text-white font-semibold rounded-xl hover:bg-red-800 transition"
-              >
-                Save
-              </button>
+            <div className="mt-5 flex justify-end gap-3">
               <button
                 onClick={() => setProfileOpen(false)}
-                className="px-4 py-2 border border-gray-300 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition"
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
               >
-                Close
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveProfile}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Save Changes
               </button>
             </div>
           </div>

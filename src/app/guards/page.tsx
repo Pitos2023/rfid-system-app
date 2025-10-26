@@ -6,7 +6,6 @@ import NotificationToast from "../components-guards/NotificationToast";
 import DynamicStatCards from "../components-guards/StatCards"; // ✅ dynamic version
 import ActivityLog from "../components-guards/ActivityLog";
 import SchoolEvents from "../components-guards/SchoolEvents";
-import SickLeaveList from "../components-guards/SickLeaveList";
 
 export default function GuardDashboard() {
   return (
@@ -25,7 +24,6 @@ export default function GuardDashboard() {
 
           <div className="space-y-6">
             <SchoolEvents />
-            <SickLeaveList />
           </div>
         </div>
       </main>

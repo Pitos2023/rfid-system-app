@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import BackButton from "../../components-assistant/BackButton";
+import Header from "../../components-assistant/Header";
 
 const sampleLogs = [
   {
@@ -35,46 +36,19 @@ const sampleLogs = [
 
 export default function StudentLogsPage() {
   const [filter, setFilter] = useState("today");
-  const [time, setTime] = useState("--:--:--");
-  const [date, setDate] = useState("Loading...");
-
-  // real-time clock
-  useEffect(() => {
-    const update = () => {
-      const now = new Date();
-      setTime(now.toLocaleTimeString("en-US", { hour12: false }));
-      setDate(
-        now.toLocaleDateString("en-US", {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-        })
-      );
-    };
-    update();
-    const interval = setInterval(update, 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   const filteredLogs = sampleLogs; // placeholder for future filtering
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* 🔹 Header */}
-      <header className="bg-[#58181F] p-3 shadow-md flex justify-between items-center">
-        <h1 className="text-white text-2xl font-bold">My.SPC</h1>
-        <div className="text-right">
-          <p className="text-white text-2xl font-bold">{time}</p>
-          <p className="text-white text-sm">{date}</p>
-        </div>
-      </header>
+      {/* Header */}
+      <Header />
 
       <div className="mt-4 ml-4">
         <BackButton />
       </div>
 
-      {/* 🔹 Content */}
+      {/* Content */}
       <div className="p-6">
         <div className="bg-white rounded-2xl shadow-md border border-gray-200">
           {/* Title + Filters */}
@@ -87,7 +61,7 @@ export default function StudentLogsPage() {
                   onClick={() => setFilter(f)}
                   className={`px-4 py-2 rounded-lg font-medium border ${
                     filter === f
-                      ? "bg-[#58181F] text-white border-[#58181F]"
+                      ? "bg-[#800000] text-white border-[#800000]"
                       : "bg-white text-black border-gray-300 hover:bg-gray-100"
                   }`}
                 >
@@ -129,7 +103,7 @@ export default function StudentLogsPage() {
                       <span
                         className={`font-bold ${
                           log.consent === "Approved"
-                            ? "text-green-600"
+                            ? "text-[#800000]"
                             : "text-red-600"
                         }`}
                       >
