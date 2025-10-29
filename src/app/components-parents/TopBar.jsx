@@ -1,46 +1,50 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Bell, CheckCircle, User, Loader2, X } from "lucide-react";
+import { Bell, User, Loader2, Settings, LogOut } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
+import { motion, AnimatePresence } from "framer-motion";
 
-// ✅ Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function TopBar({ currentView, setSidebarOpen, users, setUsers }) {
+export default function TopBar({ currentView, setSidebarOpen }) {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [waitingNotifs, setWaitingNotifs] = useState({}); // ✅ Track waiting timers
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [user, setUser] = useState(null);
 
-  const dropdownRef = useRef(null);
-  const profileButtonRef = useRef(null);
-  const profileModalRef = useRef(null);
+  const notifRef = useRef(null);
+  const profileRef = useRef(null);
 
-  const [formData, setFormData] = useState({
-    first_name: users?.first_name || "",
-    last_name: users?.last_name || "",
-    email: users?.email || "",
-    contact_number: users?.contact_number || "",
-    address: users?.address || "",
-  });
-
+  // ✅ Fetch parent info
   useEffect(() => {
-    setFormData({
-      first_name: users?.first_name || "",
-      last_name: users?.last_name || "",
-      email: users?.email || "",
-      contact_number: users?.contact_number || "",
-      address: users?.address || "",
-    });
-  }, [users]);
+    const fetchUser = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-  // ✅ Fetch notifications with announcements on top
+      if (session?.user) {
+        const { data, error } = await supabase
+          .from("users")
+          .select("first_name, last_name, email")
+          .eq("id", session.user.id)
+          .single();
+
+        if (!error) setUser(data);
+        else console.error("❌ Error fetching user:", error);
+      }
+    };
+    fetchUser();
+  }, []);
+
+  // ✅ Fetch notifications
   const fetchNotifications = async () => {
     try {
       setLoading(true);
@@ -48,62 +52,20 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
         data: { session },
       } = await supabase.auth.getSession();
       const userId = session?.user?.id;
+      if (!userId) return;
 
-      if (!userId) {
-        setNotifications([]);
-        setLoading(false);
-        return;
-      }
-
-      const { data: student } = await supabase
-        .from("student")
-        .select("grade_level")
-        .eq("users_id", userId)
-        .maybeSingle();
-
-      const gradeLevel = student?.grade_level || null;
-
-      let { data, error } = await supabase
+      const { data, error } = await supabase
         .from("notifications")
         .select("*")
-        .or(
-          gradeLevel
-            ? `user_id.eq.${userId},type.eq.announcement,grade_level.eq.${gradeLevel}`
-            : `user_id.eq.${userId},type.eq.announcement`
-        );
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
 
       if (error) throw error;
 
-      // ✅ Separate announcements and personal notifications
-      const announcements = data.filter((n) => n.type === "announcement");
-      const personal = data.filter((n) => n.type !== "announcement");
-
-      // ✅ Sort each group by created_at descending
-      announcements.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      personal.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-      // ✅ Merge: announcements first
-      const sortedData = [...announcements, ...personal];
-
-      setNotifications(sortedData);
-      setUnreadCount(sortedData.filter((n) => !n.is_read).length || 0);
-
-      // Start waiting timer if consent_request appears
-      sortedData.forEach((notif) => {
-        if (
-          notif.type === "consent_request" &&
-          !waitingNotifs[notif.id] &&
-          notif.status !== "responded"
-        ) {
-          const timer = setTimeout(() => {
-            autoDenyConsent(notif);
-          }, 60000);
-          setWaitingNotifs((prev) => ({ ...prev, [notif.id]: timer }));
-        }
-      });
+      setNotifications(data);
+      setUnreadCount(data.filter((n) => !n.is_read).length);
     } catch (err) {
-      console.error("❌ Fetch notifications error:", err.message || err);
-      setNotifications([]);
+      console.error("❌ Fetch notifications failed:", err);
     } finally {
       setLoading(false);
     }
@@ -112,159 +74,91 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
   useEffect(() => {
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 5000);
-    return () => {
-      clearInterval(interval);
-      Object.values(waitingNotifs).forEach(clearTimeout);
-    };
+    return () => clearInterval(interval);
   }, []);
 
-  // ✅ Auto-deny handler
-  const autoDenyConsent = async (notif) => {
-    try {
-      console.log("⏰ Auto-denying:", notif.id);
-      await handleConsentResponse(notif, "no");
-    } catch (err) {
-      console.error("Auto deny failed:", err);
-    }
-  };
-
-  // ✅ Check if lunch time (12–1 PM Manila)
-  const isLunchTime = () => {
-    const now = new Date();
-    const manila = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Manila" }));
-    const hour = manila.getHours();
-    return hour >= 12 && hour < 13;
-  };
-
-  // ✅ Parent consent response
+  // ✅ Consent response
   const handleConsentResponse = async (notif, response) => {
     try {
-      const logId = notif?.data?.log_id || notif?.message?.match(/log_id:(\\d+)/)?.[1];
-      const parentId = notif.user_id;
-      if (!logId || !parentId) return;
-
-      // clear waiting timer if any
-      if (waitingNotifs[notif.id]) {
-        clearTimeout(waitingNotifs[notif.id]);
-        setWaitingNotifs((prev) => {
-          const updated = { ...prev };
-          delete updated[notif.id];
-          return updated;
-        });
-      }
-
-      const res = await fetch(
-        `/api/consent-response?log_id=${logId}&response=${response}&parent_id=${parentId}`,
-        { method: "GET" }
-      );
-
-      if (res.ok) {
-        await supabase
-          .from("notifications")
-          .update({ is_read: true, status: "responded" })
-          .eq("id", notif.id);
-        fetchNotifications();
-      }
-    } catch (err) {
-      console.error("Consent response error:", err);
-    }
-  };
-
-  // ✅ Close dropdowns outside click
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setDropdownOpen(false);
-      }
-      if (profileOpen) {
-        const clickedInsideModal =
-          profileModalRef.current && profileModalRef.current.contains(event.target);
-        const clickedProfileBtn =
-          profileButtonRef.current && profileButtonRef.current.contains(event.target);
-        if (!clickedInsideModal && !clickedProfileBtn) {
-          setProfileOpen(false);
-        }
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [profileOpen]);
-
-  const markAllAsRead = async () => {
-    try {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      const userId = session?.user?.id;
+      const parent_id = session?.user?.id;
+      const log_id = notif?.log_id;
 
-      await supabase
-        .from("notifications")
-        .update({ is_read: true })
-        .eq("user_id", userId)
-        .eq("is_read", false);
-
-      fetchNotifications();
-    } catch (err) {
-      console.error("❌ Error marking as read:", err);
-    }
-  };
-
-  const handleSaveProfile = async () => {
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const userId = session?.user?.id;
-      if (!userId) {
-        alert("No authenticated user found.");
+      if (!log_id || !parent_id) {
+        alert("Invalid consent data.");
         return;
       }
 
-      const { error } = await supabase
-        .from("users")
-        .update({
-          first_name: formData.first_name,
-          last_name: formData.last_name,
-          email: formData.email,
-          contact_number: formData.contact_number,
-          address: formData.address,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", userId);
+      const res = await fetch("/api/consent-response", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: response,
+          log_id,
+          parent_id,
+          notification_id: notif.id,
+        }),
+      });
 
+      const result = await res.json();
+      if (result.success) {
+        alert(result.message);
+        fetchNotifications();
+      } else {
+        alert("❌ Failed to update consent: " + result.message);
+      }
+    } catch (err) {
+      console.error("💥 Consent response failed:", err);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("user_id", userId);
+    fetchNotifications();
+  };
+
+  // ✅ Logout handling
+  const confirmLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      const { error } = await supabase.auth.signOut();
       if (error) throw error;
 
-      setUsers({ ...users, ...formData });
-      alert("✅ Profile updated successfully!");
-      setProfileOpen(false);
+      setTimeout(() => {
+        setIsLoggingOut(false);
+        setShowLogoutModal(false);
+        window.location.href = "/";
+      }, 1500);
     } catch (err) {
-      console.error("❌ Error saving profile:", err);
-      alert("Failed to save profile.");
+      alert("Error logging out. Please try again.");
+      console.error(err);
+      setIsLoggingOut(false);
     }
   };
 
-  const titles = {
-    dashboard: "Dashboard",
-    students: "My Children",
-    activity: "Activity Log",
-    notifications: "Notifications",
-    profile: "My Profile",
-  };
-
-  const getSubtitle = () => {
-    if (currentView === "dashboard") {
-      return users
-        ? `Welcome back, ${users.first_name} ${users.last_name}`
-        : "Welcome back...";
-    }
-    const subtitles = {
-      students: "Student profiles and information",
-      activity: "Complete entry and exit history",
-      notifications: "Recent alerts and updates",
-      profile: "Account settings and information",
+  // ✅ Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (
+        (notifRef.current && notifRef.current.contains(e.target)) ||
+        (profileRef.current && profileRef.current.contains(e.target))
+      )
+        return;
+      setNotifOpen(false);
+      setProfileOpen(false);
     };
-    return subtitles[currentView] || "";
-  };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   return (
     <>
@@ -279,18 +173,23 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
           </button>
           <div>
             <h1 className="text-xl font-semibold text-gray-800">
-              {titles[currentView] || "Dashboard"}
+              {currentView === "notifications" ? "Notifications" : "Dashboard"}
             </h1>
-            <p className="text-sm text-gray-500">{getSubtitle()}</p>
+            <p className="text-sm text-gray-500">
+              Welcome back, {user?.first_name} {user?.last_name}
+            </p>
           </div>
         </div>
 
         {/* Right Section */}
         <div className="flex items-center gap-4">
-          {/* Notification Bell */}
-          <div className="relative" ref={dropdownRef}>
+          {/* 🔔 Notifications Dropdown */}
+          <div className="relative" ref={notifRef}>
             <button
-              onClick={() => setDropdownOpen(!dropdownOpen)}
+              onClick={() => {
+                setNotifOpen(!notifOpen);
+                setProfileOpen(false);
+              }}
               className="relative p-2 rounded-full hover:bg-gray-100"
             >
               <Bell className="h-6 w-6 text-gray-700" />
@@ -301,126 +200,188 @@ export default function TopBar({ currentView, setSidebarOpen, users, setUsers })
               )}
             </button>
 
-            {dropdownOpen && (
-              <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden">
-                <div className="flex justify-between items-center p-3 border-b">
-                  <span className="font-semibold text-gray-700">Notifications</span>
-                  <button
-                    onClick={markAllAsRead}
-                    className="text-sm text-blue-600 hover:underline"
-                  >
-                    Mark all as read
-                  </button>
-                </div>
-                <div className="max-h-96 overflow-y-auto">
-                  {loading ? (
-                    <div className="p-4 text-center text-gray-500 flex items-center justify-center gap-2">
-                      <Loader2 className="animate-spin h-4 w-4" /> Loading...
-                    </div>
-                  ) : notifications.length === 0 ? (
-                    <div className="p-4 text-center text-gray-500">
-                      No notifications yet.
-                    </div>
-                  ) : (
-                    notifications.map((notif) => (
-                      <div
-                        key={notif.id}
-                        className={`p-3 border-b last:border-none ${
-                          !notif.is_read ? "bg-gray-50" : "bg-white"
-                        }`}
-                      >
-                        <p className="text-gray-700 text-sm">{notif.message}</p>
+            <AnimatePresence>
+              {notifOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden"
+                >
+                  <div className="flex justify-between items-center p-3 border-b">
+                    <span className="font-semibold text-gray-700">
+                      Notifications
+                    </span>
+                    <button
+                      onClick={markAllAsRead}
+                      className="text-sm text-blue-600 hover:underline"
+                    >
+                      Mark all as read
+                    </button>
+                  </div>
 
-                        {isLunchTime() && notif.type === "consent_request" && (
-                          <div className="mt-2 flex gap-2">
-                            <button
-                              onClick={() => handleConsentResponse(notif, "yes")}
-                              className="flex-1 bg-green-500 text-white text-sm py-1 rounded-lg hover:bg-green-600"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => handleConsentResponse(notif, "no")}
-                              className="flex-1 bg-red-500 text-white text-sm py-1 rounded-lg hover:bg-red-600"
-                            >
-                              Deny
-                            </button>
-                          </div>
-                        )}
+                  <div className="max-h-96 overflow-y-auto">
+                    {loading ? (
+                      <div className="p-4 text-center text-gray-500 flex items-center justify-center gap-2">
+                        <Loader2 className="animate-spin h-4 w-4" /> Loading...
                       </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
+                    ) : notifications.length === 0 ? (
+                      <div className="p-4 text-center text-gray-500">
+                        No notifications yet.
+                      </div>
+                    ) : (
+                      notifications.map((notif) => (
+                        <div
+                          key={notif.id}
+                          className={`p-3 border-b last:border-none ${
+                            !notif.is_read ? "bg-gray-50" : "bg-white"
+                          }`}
+                        >
+                          <p className="text-gray-700 text-sm">
+                            {notif.message}
+                          </p>
+
+                          {notif.type === "consent_request" &&
+                            notif.status === "pending" && (
+                              <div className="mt-2 flex gap-2">
+                                <button
+                                  onClick={() =>
+                                    handleConsentResponse(notif, "yes")
+                                  }
+                                  className="flex-1 bg-green-500 text-white text-sm py-1 rounded-lg hover:bg-green-600"
+                                >
+                                  Yes
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    handleConsentResponse(notif, "no")
+                                  }
+                                  className="flex-1 bg-red-500 text-white text-sm py-1 rounded-lg hover:bg-red-600"
+                                >
+                                  No
+                                </button>
+                              </div>
+                            )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          {/* Profile */}
-          <button
-            ref={profileButtonRef}
-            onClick={() => setProfileOpen(true)}
-            className="flex items-center gap-2 p-2 rounded-full hover:bg-gray-100"
-          >
-            <User className="h-6 w-6 text-gray-700" />
-          </button>
+          {/* 👤 Profile Dropdown */}
+          <div className="relative" ref={profileRef}>
+            <button
+              onClick={() => {
+                setProfileOpen(!profileOpen);
+                setNotifOpen(false);
+              }}
+              className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-full transition"
+            >
+              <User className="h-6 w-6 text-gray-700" />
+            </button>
+
+            <AnimatePresence>
+              {profileOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden z-50"
+                >
+                  {/* User Info */}
+                  <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200">
+                    <img
+                      src="/profile.jpg"
+                      alt="Profile"
+                      className="w-10 h-10 rounded-full object-cover"
+                    />
+                    <div>
+                      <span className="font-semibold text-gray-800">
+                        {user
+                          ? `${user.first_name} ${user.last_name}`
+                          : "Parent"}
+                      </span>
+                      <p className="text-xs text-gray-500">Parent Account</p>
+                    </div>
+                  </div>
+
+                  <button className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700 font-medium border-b border-gray-200 transition">
+                    See all profiles
+                  </button>
+
+                  <button className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700 font-medium transition flex items-center gap-2">
+                    <Settings size={16} /> Settings & privacy
+                  </button>
+
+                  <button
+                    onClick={() => setShowLogoutModal(true)}
+                    className="w-full text-left px-4 py-2 hover:bg-gray-100 text-red-600 font-medium transition flex items-center gap-2"
+                  >
+                    <LogOut size={16} /> Log Out
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </header>
 
-      {/* ✅ Profile Modal */}
-      {profileOpen && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-50">
-          <div
-            ref={profileModalRef}
-            className="bg-white rounded-2xl shadow-2xl p-6 w-11/12 max-w-md relative animate-fadeIn"
+      {/* ✅ Logout Confirmation Modal */}
+      <AnimatePresence>
+        {showLogoutModal && (
+          <motion.div
+            className="fixed inset-0 bg-white/40 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
           >
-            <button
-              onClick={() => setProfileOpen(false)}
-              className="absolute top-3 right-3 text-gray-500 hover:text-gray-700"
+            <motion.div
+              className="bg-white rounded-2xl shadow-2xl p-6 w-[90%] max-w-sm text-center border border-gray-200"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
             >
-              <X size={20} />
-            </button>
+              {isLoggingOut ? (
+                <>
+                  <Loader2 className="w-10 h-10 mx-auto text-red-600 animate-spin mb-3" />
+                  <p className="text-gray-700 font-medium">
+                    Logging out, please wait...
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-lg font-semibold mb-2 text-gray-800">
+                    Confirm Logout
+                  </h2>
+                  <p className="text-sm text-gray-600 mb-6">
+                    Are you sure you want to log out?
+                  </p>
 
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">
-              Edit Profile
-            </h2>
-
-            <div className="space-y-3">
-              {["first_name", "last_name", "email", "contact_number", "address"].map(
-                (field) => (
-                  <div key={field}>
-                    <label className="block text-sm font-medium text-gray-600 capitalize">
-                      {field.replace("_", " ")}
-                    </label>
-                    <input
-                      type="text"
-                      value={formData[field]}
-                      onChange={(e) =>
-                        setFormData({ ...formData, [field]: e.target.value })
-                      }
-                      className="w-full border rounded-lg px-3 py-2 mt-1 text-gray-800 focus:ring-2 focus:ring-blue-500"
-                    />
+                  <div className="flex justify-center gap-4">
+                    <button
+                      onClick={confirmLogout}
+                      className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      onClick={() => setShowLogoutModal(false)}
+                      className="px-4 py-2 rounded-lg bg-gray-300 text-gray-800 hover:bg-gray-400 transition"
+                    >
+                      No
+                    </button>
                   </div>
-                )
+                </>
               )}
-            </div>
-
-            <div className="mt-5 flex justify-end gap-3">
-              <button
-                onClick={() => setProfileOpen(false)}
-                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveProfile}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Save Changes
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

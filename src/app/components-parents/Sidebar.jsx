@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 export default function Sidebar({ currentView, setView }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [user, setUser] = useState(null);
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -14,6 +13,7 @@ export default function Sidebar({ currentView, setView }) {
     { id: "activity", label: "📜 View All Activity" },
   ];
 
+  // ✅ Handle view switching via URL
   useEffect(() => {
     const viewFromUrl = searchParams.get("view");
     if (viewFromUrl) setView(viewFromUrl);
@@ -27,35 +27,9 @@ export default function Sidebar({ currentView, setView }) {
     if (currentView) router.replace(`?view=${currentView}`);
   }, [currentView, router]);
 
-  useEffect(() => {
-    const fetchUser = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session?.user) {
-        const { data, error } = await supabase
-          .from("users")
-          .select("first_name, last_name")
-          .eq("id", session.user.id)
-          .single();
-
-        if (error) console.error("Error fetching user info:", error);
-        else setUser(data);
-      }
-    };
-    fetchUser();
-  }, []);
-
-  const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) console.error("Error logging out:", error.message);
-    else router.push("/");
-  };
-
   return (
     <>
-      {/* Sidebar overlay for small screens */}
+      {/* Sidebar overlay for mobile */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/40 z-40 lg:hidden"
@@ -112,31 +86,9 @@ export default function Sidebar({ currentView, setView }) {
             ))}
           </ul>
         </nav>
-
-        {/* User Info + Logout */}
-        <div className="p-4 border-t border-white/20 space-y-3">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-yellow-400 rounded-full flex items-center justify-center">
-              👩
-            </div>
-            <div>
-              <p className="font-medium">
-                {user ? `${user.first_name} ${user.last_name}` : "Parent"}
-              </p>
-              <p className="text-gray-200 text-sm">Parent Account</p>
-            </div>
-          </div>
-
-          <button
-            onClick={handleLogout}
-            className="w-full px-4 py-2 bg-[#9c1c1c] text-white font-semibold rounded-lg hover:bg-[#b32b2b] transition"
-          >
-            Logout
-          </button>
-        </div>
       </div>
 
-      {/* Hamburger toggle for small screens */}
+      {/* Hamburger toggle for mobile */}
       {!sidebarOpen && (
         <button
           className="fixed top-4 left-4 z-50 lg:hidden bg-[#800000] text-white p-2 rounded-md shadow-md"

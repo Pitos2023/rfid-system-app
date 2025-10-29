@@ -167,7 +167,7 @@ export default function StatCards() {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
         <StatCard
           title="Students Present"
           value={studentsPresent}
@@ -181,13 +181,6 @@ export default function StatCards() {
           note="Today's attendance logs"
           color="from-[#7b1113] via-[#a82c2c] to-[#c43e3e]"
           Icon={Activity}
-        />
-        <StatCard
-          title="Sick Leave"
-          value={sickLeave}
-          note="Approved today"
-          color="from-[#922b21] via-[#b93a3a] to-[#d94f4f]"
-          Icon={HeartPulse}
         />
       </div>
     </div>

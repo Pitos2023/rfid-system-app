@@ -5,7 +5,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-// 📨 GET - Fetch notifications for a specific parent (with grade-level filter)
+// 📨 GET - Fetch notifications for a specific parent (no duplicates)
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -18,7 +18,7 @@ export async function GET(request) {
       );
     }
 
-    // 1️⃣ Get user's student info to determine grade_level
+    // Get user's student info to determine grade_level
     const { data: student, error: studentError } = await supabase
       .from("student")
       .select("grade_level")
@@ -29,7 +29,7 @@ export async function GET(request) {
 
     const gradeLevel = student?.grade_level || null;
 
-    // 2️⃣ Fetch notifications (general or specific to grade_level or user)
+    // Fetch notifications for userId or gradeLevel or general
     const { data: notifications, error: notifError } = await supabase
       .from("notifications")
       .select("*")
@@ -40,8 +40,20 @@ export async function GET(request) {
 
     if (notifError) throw notifError;
 
+    // Remove duplicates
+    const uniqueNotifications = [];
+    const seen = new Set();
+
+    for (const n of notifications) {
+      const key = `${n.title}-${n.message}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueNotifications.push(n);
+      }
+    }
+
     return new Response(
-      JSON.stringify({ success: true, notifications }),
+      JSON.stringify({ success: true, notifications: uniqueNotifications }),
       { status: 200 }
     );
   } catch (err) {
@@ -53,11 +65,11 @@ export async function GET(request) {
   }
 }
 
-// 📨 POST - Send notifications (used by NotificationComposer.jsx)
+// 📨 POST - Send notifications (including Yes/No actions)
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { title, message, targetGradeLevel, targetParents } = body;
+    const { title, message, targetGradeLevel, targetParents, actionType, referenceId } = body;
 
     if (!title || !message) {
       return new Response(
@@ -67,26 +79,19 @@ export async function POST(request) {
     }
 
     let targets = [];
-
-    // 1️⃣ Determine recipients
     if (targetParents && targetParents.length > 0) {
-      // Specific parent(s)
       targets = targetParents;
     } else if (targetGradeLevel && targetGradeLevel !== "All") {
-      // Parents whose children belong to a specific grade level
       const { data: students, error: studentError } = await supabase
         .from("student")
         .select("users_id")
         .eq("grade_level", targetGradeLevel);
-
       if (studentError) throw studentError;
       targets = students.map((s) => s.users_id);
     } else {
-      // All parents (fetch all student->users_id)
       const { data: allStudents, error: allError } = await supabase
         .from("student")
         .select("users_id");
-
       if (allError) throw allError;
       targets = allStudents.map((s) => s.users_id);
     }
@@ -98,28 +103,31 @@ export async function POST(request) {
       );
     }
 
-    // 2️⃣ Fetch grade level for each target user
+    // Fetch grade level for each target user
     const { data: studentInfo, error: gradeError } = await supabase
       .from("student")
       .select("users_id, grade_level")
       .in("users_id", targets);
-
     if (gradeError) throw gradeError;
 
-    // 3️⃣ Prepare and insert notifications
+    // Prepare notifications
     const notifications = studentInfo.map((s) => ({
       user_id: s.users_id,
       title,
       message,
       grade_level: s.grade_level || null,
+      type: actionType ? "action" : "normal", // mark as action if needed
+      action_type: actionType || null, // e.g., "yes_no"
+      reference_id: referenceId || null, // optional link
       created_at: new Date().toISOString(),
       is_read: false,
+      response: null, // store yes/no later
     }));
 
+    // Insert notifications
     const { error: insertError } = await supabase
       .from("notifications")
       .insert(notifications);
-
     if (insertError) throw insertError;
 
     return new Response(
@@ -132,6 +140,34 @@ export async function POST(request) {
     );
   } catch (err) {
     console.error("❌ POST /api/notifications error:", err);
+    return new Response(
+      JSON.stringify({ success: false, error: err.message }),
+      { status: 500 }
+    );
+  }
+}
+
+// 📨 POST - Respond to Yes/No notifications
+export async function handleResponse(request) {
+  try {
+    const { notificationId, response } = await request.json();
+    if (!notificationId || !response) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Missing parameters" }),
+        { status: 400 }
+      );
+    }
+
+    // Update the notification with user response
+    const { error } = await supabase
+      .from("notifications")
+      .update({ response, is_read: true })
+      .eq("id", notificationId);
+    if (error) throw error;
+
+    return new Response(JSON.stringify({ success: true }), { status: 200 });
+  } catch (err) {
+    console.error("❌ POST /api/notification-response error:", err);
     return new Response(
       JSON.stringify({ success: false, error: err.message }),
       { status: 500 }

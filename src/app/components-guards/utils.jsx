@@ -81,17 +81,18 @@ export function filterThisMonth(data) {
  * - Shows only type = "announcement" or "urgent"
  * - Skips duplicates and invalid entries
  */
-export async function fetchSchoolEvents(userRole = "guard") {
+export async function fetchSchoolEvents(userRole = "guard", page = 1, limit = 10) {
   try {
-    // Fetch notifications for this role or all
-    const { data, error } = await supabase
+    const offset = (page - 1) * limit;
+
+    const { data, error, count } = await supabase
       .from("notifications")
-      .select("id, title, message, created_at, type")
-      .order("created_at", { ascending: false });
+      .select("id, title, message, created_at, type", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
 
     if (error) throw error;
 
-    // ✅ Filter by allowed types only (announcement, urgent)
     const filtered = (data || [])
       .filter(
         (n) =>
@@ -100,14 +101,12 @@ export async function fetchSchoolEvents(userRole = "guard") {
           n.title &&
           n.message
       )
-      // ✅ Remove possible duplicates by ID
       .reduce((acc, curr) => {
         if (!acc.find((x) => x.id === curr.id)) acc.push(curr);
         return acc;
       }, []);
 
-    // ✅ Format to old style event data
-    return filtered.map((n) => ({
+    const formatted = filtered.map((n) => ({
       date: new Date(n.created_at).toISOString().split("T")[0],
       time: new Date(n.created_at).toLocaleTimeString([], {
         hour: "2-digit",
@@ -120,8 +119,14 @@ export async function fetchSchoolEvents(userRole = "guard") {
           ? "School Admin (Urgent)"
           : "School Administration",
     }));
+
+    return {
+      events: formatted,
+      totalPages: Math.ceil((count || 0) / limit),
+    };
   } catch (err) {
     console.error("❌ Error fetching school events:", err.message || err);
-    return [];
+    return { events: [], totalPages: 1 };
   }
 }
+

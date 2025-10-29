@@ -8,7 +8,8 @@ import Dashboard from "../components-parents/Dashboard";
 import Students from "../components-parents/Students";
 import ActivityLog from "../components-parents/ActivityLog";
 import Notifications from "../components-parents/Notifications";
-import { supabase } from "../supabaseClient";
+import { supabaseParent as supabase } from "../supabaseClient";
+
 
 export default function ParentPage() {
   const [currentView, setCurrentView] = useState("dashboard");

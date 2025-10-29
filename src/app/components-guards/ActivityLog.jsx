@@ -1,6 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
 export default function ActivityLog() {
   const [logs, setLogs] = useState([]);
@@ -12,12 +18,17 @@ export default function ActivityLog() {
   const [scannedStudent, setScannedStudent] = useState(null);
   const [mobileDropdownOpen, setMobileDropdownOpen] = useState(false);
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(0);
+  const ITEMS_PER_PAGE = 10;
+
   const filters = [
     { key: "today", label: "Today" },
     { key: "week", label: "This Week" },
     { key: "month", label: "This Month" },
   ];
 
+  // ✅ Fetch logs from API
   const fetchLogs = async () => {
     try {
       setLoading(true);
@@ -35,6 +46,45 @@ export default function ActivityLog() {
     fetchLogs();
   }, []);
 
+  // ✅ Realtime subscription to Supabase "log" table + broadcast listener
+  useEffect(() => {
+    console.log("🔌 Subscribing to Realtime changes in log table and broadcasts...");
+
+    const channel = supabase
+      .channel("log-updates")
+      // When any row changes in 'log'
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "log" },
+        (payload) => {
+          console.log("🪄 Realtime log update received:", payload);
+          fetchLogs();
+        }
+      )
+      // Listen for broadcast messages (from consent-response or others)
+      .on("broadcast", { event: "log_refresh" }, (payload) => {
+        console.log("📡 Broadcast received:", payload);
+        fetchLogs();
+      })
+      .subscribe();
+
+    return () => {
+      console.log("❌ Unsubscribing from Realtime log-updates channel...");
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // ✅ Legacy fallback (still works with window event)
+  useEffect(() => {
+    const handleRefresh = () => {
+      console.log("🔄 Manual refresh triggered by window event");
+      fetchLogs();
+    };
+    window.addEventListener("refreshLogs", handleRefresh);
+    return () => window.removeEventListener("refreshLogs", handleRefresh);
+  }, []);
+
+  // ✅ Handle RFID Scan
   const handleScan = async (e) => {
     e.preventDefault();
     if (!cardNumber.trim()) return;
@@ -77,15 +127,32 @@ export default function ActivityLog() {
     }
   };
 
+  // Filtering logic
   const now = new Date();
   const filteredLogs = logs.filter((log) => {
     const logDate = new Date(log.time_stamp);
     if (filter === "today") return logDate.toDateString() === now.toDateString();
     if (filter === "week") return (now - logDate) / (1000 * 60 * 60 * 24) <= 7;
     if (filter === "month")
-      return logDate.getMonth() === now.getMonth() && logDate.getFullYear() === now.getFullYear();
+      return (
+        logDate.getMonth() === now.getMonth() &&
+        logDate.getFullYear() === now.getFullYear()
+      );
     return true;
   });
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredLogs.length / ITEMS_PER_PAGE);
+  const startIndex = currentPage * ITEMS_PER_PAGE;
+  const displayedLogs = filteredLogs.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+  const handlePageClick = (page) => setCurrentPage(page);
+  const handleNext = () => setCurrentPage((p) => Math.min(p + 1, totalPages - 1));
+  const handlePrev = () => setCurrentPage((p) => Math.max(p - 1, 0));
+
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [filter, logs]);
 
   return (
     <div className="relative lg:col-span-2 bg-white border border-gray-200 rounded-2xl shadow-md">
@@ -185,92 +252,131 @@ export default function ActivityLog() {
       <div className="p-6 overflow-x-auto">
         {loading ? (
           <p className="text-gray-500 text-sm text-center py-6">Loading logs...</p>
-        ) : filteredLogs.length === 0 ? (
+        ) : displayedLogs.length === 0 ? (
           <p className="text-gray-500 text-sm text-center py-6">
             No activity found for {filter}.
           </p>
         ) : (
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-[#f5dada]">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
-                  Student
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
-                  Date & Time
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
-                  Grade & Section
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
-                  Action
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
-                  Consent
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 bg-white">
-              {filteredLogs.map((log) => (
-                <tr key={log.id}>
-                  <td className="px-4 py-3 flex items-center gap-3">
-                    {log.student?.student_pic ? (
-                      <img
-                        src={log.student.student_pic}
-                        alt="Student"
-                        className="w-10 h-10 rounded-full object-cover border-2 border-[#9c1c1c]"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-sm">
-                        N/A
-                      </div>
-                    )}
-                    <p className="font-semibold text-[#58181F]">
-                      {log.student
-                        ? `${log.student.first_name} ${log.student.last_name}`
-                        : "Unknown Student"}
-                    </p>
-                  </td>
-
-                  <td className="px-4 py-3">
-                    <p className="text-sm text-[#58181F]">
-                      {new Date(log.time_stamp).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {new Date(log.time_stamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </p>
-                  </td>
-
-                  <td className="px-4 py-3 text-sm text-[#58181F]">
-                    {log.student
-                      ? `${log.student.grade_level || "-"} - ${log.student.section || "-"}`
-                      : "-"}
-                  </td>
-
-                  <td
-                    className={`px-4 py-3 font-semibold ${
-                      log.action === "time-in" ? "text-green-600" : "text-red-600"
-                    }`}
-                  >
-                    {log.action || "-"}
-                  </td>
-
-                  <td className="px-4 py-3 font-semibold">
-                    <span className={`${log.consent ? "text-green-600" : "text-red-600"}`}>
-                      {log.consent ? "✔ Yes" : "❌ No"}
-                    </span>
-                  </td>
+          <>
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-[#f5dada]">
+                <tr>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
+                    Student
+                  </th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
+                    Date & Time
+                  </th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
+                    Grade & Section
+                  </th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
+                    Action
+                  </th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-[#800000]">
+                    Consent
+                  </th>
                 </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 bg-white">
+                {displayedLogs.map((log) => (
+                  <tr key={log.id}>
+                    <td className="px-4 py-3 flex items-center gap-3">
+                      {log.student?.student_pic ? (
+                        <img
+                          src={log.student.student_pic}
+                          alt="Student"
+                          className="w-10 h-10 rounded-full object-cover border-2 border-[#9c1c1c]"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-sm">
+                          N/A
+                        </div>
+                      )}
+                      <p className="font-semibold text-[#58181F]">
+                        {log.student
+                          ? `${log.student.first_name} ${log.student.last_name}`
+                          : "Unknown Student"}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="text-sm text-[#58181F]">
+                        {new Date(log.time_stamp).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(log.time_stamp).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-[#58181F]">
+                      {log.student
+                        ? `${log.student.grade_level || "-"} - ${
+                            log.student.section || "-"
+                          }`
+                        : "-"}
+                    </td>
+                    <td
+                      className={`px-4 py-3 font-semibold ${
+                        log.action === "time-in"
+                          ? "text-green-600"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {log.action || "-"}
+                    </td>
+                    <td className="px-4 py-3 font-semibold">
+                      <span
+                        className={`${
+                          log.consent ? "text-green-600" : "text-red-600"
+                        }`}
+                      >
+                        {log.consent ? "✔ Yes" : "❌ No"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Pagination */}
+            <div className="flex justify-center items-center mt-4 space-x-2">
+              <button
+                onClick={handlePrev}
+                disabled={currentPage === 0}
+                className="px-3 py-1 bg-[#800000] text-white rounded-lg disabled:opacity-50"
+              >
+                Previous
+              </button>
+
+              {[...Array(totalPages)].map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handlePageClick(idx)}
+                  className={`px-3 py-1 rounded-lg transition-all duration-150 ${
+                    idx === currentPage
+                      ? "bg-[#800000] text-white font-semibold scale-105"
+                      : "bg-[#F4E4E4] border border-[#800000] text-[#800000] hover:bg-[#ffd6d6]"
+                  }`}
+                >
+                  {idx + 1}
+                </button>
               ))}
-            </tbody>
-          </table>
+
+              <button
+                onClick={handleNext}
+                disabled={currentPage === totalPages - 1}
+                className="px-3 py-1 bg-[#800000] text-white rounded-lg disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </>
         )}
       </div>
 
