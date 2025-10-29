@@ -39,6 +39,12 @@ export const supabaseAssistant = createClient(supabaseUrl, supabaseAnonKey, {
   auth: { storageKey: "supabase-assistant-session" },
 });
 
+// ⚠️ Temporary client used only during initial credential check to avoid
+// polluting any role-specific session storages.
+export const supabaseTemp = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: { storageKey: "supabase-temp-session" },
+});
+
 /**
  * 🧩 Helper: Dynamically get the correct client by role
  *

@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "../supabaseClient";
+import { createScopedClient } from "../supabaseClient";
 
 export default function Students({ user }) {
+  const role = (typeof window !== "undefined" && sessionStorage.getItem("role")) || "parent";
+  const supabase = createScopedClient(role);
   const [students, setStudents] = useState([]);
   const [studentLogs, setStudentLogs] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -13,78 +15,100 @@ export default function Students({ user }) {
   const intervalRef = useRef(null);
 
   // ✅ Initialize OneSignal v16 and save player ID to Supabase
-// ✅ Initialize OneSignal v16 and save player ID to Supabase
-useEffect(() => {
-  if (typeof window === "undefined" || !user?.id) return;
+  useEffect(() => {
+    if (typeof window === "undefined" || !user?.id) return;
 
-  const existingScript = document.querySelector(
-    'script[src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js"]'
-  );
+    const existingScript = document.querySelector(
+      'script[src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js"]'
+    );
 
-  if (!existingScript) {
-    const script = document.createElement("script");
-    script.src = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
-    script.defer = true;
-    document.head.appendChild(script);
-    script.onload = () => initOneSignal();
-  } else {
-    initOneSignal();
-  }
-
-  async function initOneSignal() {
-    window.OneSignalDeferred = window.OneSignalDeferred || [];
-    window.OneSignalDeferred.push(async function (OneSignal) {
-      if (OneSignal.initialized) return;
-
-      await OneSignal.init({
-        appId: "4bdfec2a-071e-4173-a4ba-09f512c2227a",
-        allowLocalhostAsSecureOrigin: true,
-      });
-
-      OneSignal.initialized = true;
-      console.log("✅ OneSignal initialized");
-
-      // 🔔 When permission changes to granted, save the player ID
-      OneSignal.Notifications.addEventListener("permissionChange", async (event) => {
-        console.log("🔔 Permission changed:", event.to);
-        if (event.to === "granted") {
-          await savePlayerId(OneSignal);
-        }
-      });
-
-      // Also try saving if already subscribed
-      await savePlayerId(OneSignal);
-    });
-  }
-
-  async function savePlayerId(OneSignal, retries = 0) {
-    try {
-      const playerId = await OneSignal.User.PushSubscription.id;
-
-      if (!playerId) {
-        if (retries < 5) {
-          console.warn(`⚠️ Player ID not yet available — retrying (${retries + 1}/5)...`);
-          setTimeout(() => savePlayerId(OneSignal, retries + 1), 3000);
-        } else {
-          console.error("❌ Failed to get OneSignal Player ID after multiple retries.");
-        }
-        return;
-      }
-
-      console.log("✅ OneSignal Player ID:", playerId);
-
-      const { error } = await supabase
-        .from("users")
-        .update({ onesignal_player_id: playerId })
-        .eq("id", user.id);
-
-      if (error) console.error("❌ Failed to save OneSignal ID:", error);
-      else console.log("✅ OneSignal ID saved successfully to Supabase!");
-    } catch (err) {
-      console.error("❌ Error getting OneSignal Player ID:", err);
+    if (!existingScript) {
+      const script = document.createElement("script");
+      script.src = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
+      script.defer = true;
+      document.head.appendChild(script);
+      script.onload = () => initOneSignal();
+    } else {
+      initOneSignal();
     }
-  }
-}, [user?.id]);
+
+    async function initOneSignal() {
+      window.OneSignalDeferred = window.OneSignalDeferred || [];
+      window.OneSignalDeferred.push(async function (OneSignal) {
+        if (OneSignal.initialized) return;
+
+        await OneSignal.init({
+          appId: "4bdfec2a-071e-4173-a4ba-09f512c2227a",
+          allowLocalhostAsSecureOrigin: true,
+        });
+
+        OneSignal.initialized = true;
+        console.log("✅ OneSignal initialized");
+
+        // 🔔 When permission changes to granted, save the player ID
+        OneSignal.Notifications.addEventListener("permissionChange", async (event) => {
+          console.log("🔔 Permission changed:", event.to);
+          if (event.to === "granted") {
+            await savePlayerId(OneSignal);
+          }
+        });
+
+        // Also try saving if already subscribed
+        await savePlayerId(OneSignal);
+      });
+    }
+
+    async function savePlayerId(OneSignal, retries = 0) {
+      try {
+        const playerId = await OneSignal.User.PushSubscription.id;
+
+        if (!playerId) {
+          if (retries < 5) {
+            console.warn(`⚠️ Player ID not yet available — retrying (${retries + 1}/5)...`);
+            setTimeout(() => savePlayerId(OneSignal, retries + 1), 3000);
+          } else {
+            console.error("❌ Failed to get OneSignal Player ID after multiple retries.");
+          }
+          return;
+        }
+
+        console.log("✅ OneSignal Player ID:", playerId);
+
+        const { error } = await supabase
+          .from("users")
+          .update({ onesignal_player_id: playerId })
+          .eq("id", user.id);
+
+        if (error) console.error("❌ Failed to save OneSignal ID:", error);
+        else console.log("✅ OneSignal ID saved successfully to Supabase!");
+      } catch (err) {
+        console.error("❌ Error getting OneSignal Player ID:", err);
+      }
+    }
+  }, [user?.id]);
+
+  // ✅ Ensure that user role is persisted correctly without overwriting
+  useEffect(() => {
+    if (user?.id && !sessionStorage.getItem("role")) {
+      const fetchUserRole = async () => {
+        const { data, error } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+
+        if (error) {
+          console.error("Error fetching user role:", error);
+        } else {
+          const role = data?.role || "parent";  // Default to 'parent' if no role found
+          sessionStorage.setItem("role", role); // Persist role in sessionStorage if not already set
+          console.log("User role:", role);
+        }
+      };
+
+      fetchUserRole();
+    }
+  }, [user?.id]);
 
   // 🎓 Fetch parent's students
   useEffect(() => {

@@ -7,6 +7,7 @@ import {
   supabaseAssistant,
   supabaseGuard,
   supabaseParent,
+  supabaseTemp,
 } from "./supabaseClient";
 import { useRouter } from "next/navigation";
 
@@ -45,9 +46,9 @@ export default function LandingPage() {
     setSuccess("");
 
     try {
-      // Temporary generic login client (we’ll check role later)
+      // Use a TEMP client to avoid overriding any role-specific session
       const { data: tempLogin, error: signInError } =
-        await supabaseAdmin.auth.signInWithPassword({
+        await supabaseTemp.auth.signInWithPassword({
           email: email.trim(),
           password,
         });
@@ -59,7 +60,7 @@ export default function LandingPage() {
       }
 
       // 🧠 Get user info (and detect role)
-      const { data: userRow, error: fetchError } = await supabaseAdmin
+      const { data: userRow, error: fetchError } = await supabaseTemp
         .from("users")
         .select("id, role, first_name, email")
         .eq("email", email.trim())
@@ -76,7 +77,7 @@ export default function LandingPage() {
       // Choose proper Supabase client for session isolation
       let supabaseClient;
       if (role === "admin") supabaseClient = supabaseAdmin;
-      else if (role === "assistant_principal") supabaseClient = supabaseassistant_principal;
+      else if (role === "assistant_principal") supabaseClient = supabaseAssistant;
       else if (role === "guard") supabaseClient = supabaseGuard;
       else if (role === "parent") supabaseClient = supabaseParent;
       else {
@@ -84,6 +85,14 @@ export default function LandingPage() {
         setLoading(false);
         return;
       }
+
+      // Ensure temp session is cleared before proceeding
+      await supabaseTemp.auth.signOut();
+
+      // Persist role for downstream scoped clients
+      try {
+        sessionStorage.setItem("role", role);
+      } catch {}
 
       // Sign in again to the correct role-based client
       await supabaseClient.auth.signInWithPassword({

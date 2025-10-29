@@ -1,7 +1,7 @@
 "use client";
 import Header from "./Header";
 import React, { useState, useEffect } from "react";
-import { supabase } from "../supabaseClient";
+import { createScopedClient } from "../supabaseClient";
 import {
   Send,
   Megaphone,
@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 
 export default function AssistantPrincipalDashboard() {
+  const role = (typeof window !== "undefined" && sessionStorage.getItem("role")) || "assistant_principal";
+  const supabase = createScopedClient(role);
   // ================= Compose Notification States =================
   const [type, setType] = useState("announcement");
   const [subType, setSubType] = useState("");
@@ -51,10 +53,16 @@ export default function AssistantPrincipalDashboard() {
         .from("student")
         .select("grade_level")
         .order("grade_level", { ascending: true });
-
+  
       if (!error && data) {
+        // Sort grades in numerical order from Grade 7 to Grade 12
+        const sortedGrades = [
+          "Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12"
+        ];
         const uniqueGrades = [...new Set(data.map((s) => s.grade_level))];
-        setGrades(uniqueGrades);
+        const organizedGrades = uniqueGrades.filter(grade => sortedGrades.includes(grade))
+                                            .sort((a, b) => sortedGrades.indexOf(a) - sortedGrades.indexOf(b));
+        setGrades(organizedGrades);
       }
     };
     fetchGrades();
@@ -362,7 +370,7 @@ export default function AssistantPrincipalDashboard() {
                 onChange={(e) => setSubType(e.target.value)}
                 className="w-full p-3 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition"
               >
-                <option value="">Select Subtype</option>
+                <option value="">Type of Notification</option>
                 {(type === "announcement"
                   ? announcementSubtypes
                   : urgentSubtypes

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Bell, User, Loader2, Settings, LogOut } from "lucide-react";
-import { createScopedClient } from "../supabaseClient";  // Import the role-based client
+import { createScopedClient } from "../supabaseClient"; // Import the role-based client
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function TopBar({ currentView, setSidebarOpen }) {
@@ -27,7 +27,7 @@ export default function TopBar({ currentView, setSidebarOpen }) {
   const profileRef = useRef(null);
 
   // ✅ Dynamically select the correct Supabase client based on the role
-  const role = sessionStorage.getItem("role") || "parent";  // Example role, can be dynamically set
+  const role = sessionStorage.getItem("role") || "parent"; // Example role, can be dynamically set
   const supabase = createScopedClient(role); // Use role-specific client
 
   // ✅ Fetch user info using the role-based client
@@ -59,7 +59,7 @@ export default function TopBar({ currentView, setSidebarOpen }) {
   };
 
   useEffect(() => {
-    fetchUser();  // Fetch user on mount
+    fetchUser(); // Fetch user on mount
   }, [supabase]);
 
   // ✅ Fetch notifications
@@ -138,8 +138,8 @@ export default function TopBar({ currentView, setSidebarOpen }) {
         console.error("❌ Profile update error:", error);
       } else {
         alert("Profile updated successfully!");
-        setShowUpdateProfile(false);  // Close the update form
-        fetchUser();  // Refetch user data
+        setShowUpdateProfile(false); // Close the update form
+        fetchUser(); // Refetch user data
       }
     } catch (err) {
       console.error("💥 Update profile failed:", err);
