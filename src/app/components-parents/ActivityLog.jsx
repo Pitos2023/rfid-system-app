@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 
 export default function ActivityLog({ user }) {
   const [logs, setLogs] = useState([]);
+  const [filteredLogs, setFilteredLogs] = useState([]); // New state for filtered logs
   const [filter, setFilter] = useState("today");
   const [loading, setLoading] = useState(true);
 
@@ -19,7 +20,7 @@ export default function ActivityLog({ user }) {
           const filtered = data.logs.filter(
             (log) => log.student?.users_id === user?.id
           );
-          setLogs(filtered);
+          setLogs(filtered); // Save the full logs to state
         } else {
           console.error("Unexpected logs format:", data);
         }
@@ -32,6 +33,44 @@ export default function ActivityLog({ user }) {
 
     if (user?.id) fetchLogs();
   }, [user?.id]);
+
+  useEffect(() => {
+    if (logs.length > 0) {
+      const filterLogs = () => {
+        const now = new Date();
+        let filteredLogs;
+
+        switch (filter) {
+          case "today":
+            filteredLogs = logs.filter((log) => {
+              const logDate = new Date(log.time_stamp);
+              return logDate.toDateString() === now.toDateString();
+            });
+            break;
+          case "week":
+            filteredLogs = logs.filter((log) => {
+              const logDate = new Date(log.time_stamp);
+              const diffTime = now - logDate;
+              const diffDays = diffTime / (1000 * 3600 * 24);
+              return diffDays <= 7;
+            });
+            break;
+          case "month":
+            filteredLogs = logs.filter((log) => {
+              const logDate = new Date(log.time_stamp);
+              return logDate.getMonth() === now.getMonth() && logDate.getFullYear() === now.getFullYear();
+            });
+            break;
+          default:
+            filteredLogs = logs;
+        }
+
+        setFilteredLogs(filteredLogs); // Apply filter and update the filteredLogs state
+      };
+
+      filterLogs();
+    }
+  }, [filter, logs]); // Depend on filter and logs, but only update filteredLogs
 
   if (loading)
     return <p className="p-6 text-gray-500">Loading student activity...</p>;
@@ -79,14 +118,14 @@ export default function ActivityLog({ user }) {
           </thead>
 
           <tbody>
-            {logs.length === 0 ? (
+            {filteredLogs.length === 0 ? (
               <tr>
                 <td colSpan="5" className="py-6 text-center text-gray-500 italic">
                   No activity found for {filter === "today" ? "today" : filter}.
                 </td>
               </tr>
             ) : (
-              logs.map((log) => {
+              filteredLogs.map((log) => {
                 const actionValue = log.action?.toLowerCase().replace("_", "-");
 
                 return (

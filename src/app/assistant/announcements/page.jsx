@@ -1,7 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
 import Header from "../../components-assistant/Header";
-import StatsCard from "../../components-assistant/StatsCard";
 import NotificationComposer from "../../components-assistant/NotificationComposer";
 import RecentNotifications from "../../components-assistant/RecentNotifications";
 import Toast from "../../components-assistant/Toast";

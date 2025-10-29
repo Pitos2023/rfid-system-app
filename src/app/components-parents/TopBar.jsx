@@ -2,13 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Bell, User, Loader2, Settings, LogOut } from "lucide-react";
-import { createClient } from "@supabase/supabase-js";
+import { createScopedClient } from "../supabaseClient";  // Import the role-based client
 import { motion, AnimatePresence } from "framer-motion";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
 
 export default function TopBar({ currentView, setSidebarOpen }) {
   const [notifications, setNotifications] = useState([]);
@@ -19,65 +14,139 @@ export default function TopBar({ currentView, setSidebarOpen }) {
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [user, setUser] = useState(null);
+  const [showUpdateProfile, setShowUpdateProfile] = useState(false);
+  const [profileData, setProfileData] = useState({
+    first_name: "",
+    last_name: "",
+    email: "",
+    address: "",
+    contact_number: "",
+  });
 
   const notifRef = useRef(null);
   const profileRef = useRef(null);
 
-  // ✅ Fetch parent info
-  useEffect(() => {
-    const fetchUser = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+  // ✅ Dynamically select the correct Supabase client based on the role
+  const role = sessionStorage.getItem("role") || "parent";  // Example role, can be dynamically set
+  const supabase = createScopedClient(role); // Use role-specific client
 
-      if (session?.user) {
-        const { data, error } = await supabase
-          .from("users")
-          .select("first_name, last_name, email")
-          .eq("id", session.user.id)
-          .single();
+  // ✅ Fetch user info using the role-based client
+  const fetchUser = async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-        if (!error) setUser(data);
-        else console.error("❌ Error fetching user:", error);
+    if (session?.user) {
+      const { data, error } = await supabase
+        .from("users")
+        .select("first_name, last_name, email, address, contact_number")
+        .eq("id", session.user.id)
+        .single();
+
+      if (!error) {
+        setUser(data);
+        setProfileData({
+          first_name: data.first_name,
+          last_name: data.last_name,
+          email: data.email,
+          address: data.address || "",
+          contact_number: data.contact_number || "",
+        });
+      } else {
+        console.error("❌ Error fetching user:", error);
       }
-    };
-    fetchUser();
-  }, []);
+    }
+  };
+
+  useEffect(() => {
+    fetchUser();  // Fetch user on mount
+  }, [supabase]);
 
   // ✅ Fetch notifications
   const fetchNotifications = async () => {
+    console.log("🔄 Starting fetchNotifications...");
     try {
       setLoading(true);
+
       const {
         data: { session },
+        error: sessionError,
       } = await supabase.auth.getSession();
-      const userId = session?.user?.id;
-      if (!userId) return;
 
+      if (sessionError) {
+        console.error("❌ Session fetch error:", sessionError);
+        return;
+      }
+
+      const userId = session?.user?.id;
+      if (!userId) {
+        console.warn("⚠️ No user ID found in session.");
+        return;
+      }
+
+      // Query notifications table
       const { data, error } = await supabase
         .from("notifications")
         .select("*")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error("❌ Supabase query error:", error);
+        return;
+      }
+
+      console.log("📬 Notifications fetched:", data);
 
       setNotifications(data);
       setUnreadCount(data.filter((n) => !n.is_read).length);
     } catch (err) {
-      console.error("❌ Fetch notifications failed:", err);
+      console.error("💥 Fetch notifications failed:", err);
     } finally {
       setLoading(false);
+      console.log("✅ fetchNotifications() finished.\n");
     }
   };
 
+  // ✅ Fetch notifications on load and interval
   useEffect(() => {
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [supabase]); // Dependency array includes supabase
 
-  // ✅ Consent response
+  // ✅ Handle update profile form submission
+  const handleUpdateProfile = async (e) => {
+    e.preventDefault();
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+
+      if (!userId) {
+        alert("User not authenticated.");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("users")
+        .update(profileData)
+        .eq("id", userId);
+
+      if (error) {
+        alert("Failed to update profile.");
+        console.error("❌ Profile update error:", error);
+      } else {
+        alert("Profile updated successfully!");
+        setShowUpdateProfile(false);  // Close the update form
+        fetchUser();  // Refetch user data
+      }
+    } catch (err) {
+      console.error("💥 Update profile failed:", err);
+    }
+  };
+
+  // ✅ Handle consent response
   const handleConsentResponse = async (notif, response) => {
     try {
       const {
@@ -114,6 +183,7 @@ export default function TopBar({ currentView, setSidebarOpen }) {
     }
   };
 
+  // ✅ Mark all notifications as read
   const markAllAsRead = async () => {
     const {
       data: { session },
@@ -295,11 +365,6 @@ export default function TopBar({ currentView, setSidebarOpen }) {
                 >
                   {/* User Info */}
                   <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200">
-                    <img
-                      src="/profile.jpg"
-                      alt="Profile"
-                      className="w-10 h-10 rounded-full object-cover"
-                    />
                     <div>
                       <span className="font-semibold text-gray-800">
                         {user
@@ -310,12 +375,11 @@ export default function TopBar({ currentView, setSidebarOpen }) {
                     </div>
                   </div>
 
-                  <button className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700 font-medium border-b border-gray-200 transition">
-                    See all profiles
-                  </button>
-
-                  <button className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700 font-medium transition flex items-center gap-2">
-                    <Settings size={16} /> Settings & privacy
+                  <button
+                    onClick={() => setShowUpdateProfile(true)}
+                    className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700 font-medium transition flex items-center gap-2"
+                  >
+                    <Settings size={16} /> Update Profile
                   </button>
 
                   <button
@@ -331,7 +395,131 @@ export default function TopBar({ currentView, setSidebarOpen }) {
         </div>
       </header>
 
-      {/* ✅ Logout Confirmation Modal */}
+      {/* Update Profile Modal */}
+      <AnimatePresence>
+        {showUpdateProfile && (
+          <motion.div
+            className="fixed inset-0 bg-white/40 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-white rounded-2xl shadow-2xl p-6 w-[90%] max-w-sm text-center border border-gray-200"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+            >
+              <h2 className="text-lg font-semibold mb-2 text-gray-800">
+                Update Profile
+              </h2>
+
+              {/* Profile Form */}
+              <form onSubmit={handleUpdateProfile}>
+                <div className="mb-4">
+                  <label
+                    htmlFor="first_name"
+                    className="block text-gray-700 text-sm font-semibold"
+                  >
+                    First Name
+                  </label>
+                  <input
+                    type="text"
+                    id="first_name"
+                    className="mt-1 p-2 border w-full rounded-md"
+                    value={profileData.first_name}
+                    onChange={(e) =>
+                      setProfileData((prevData) => ({
+                        ...prevData,
+                        first_name: e.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="mb-4">
+                  <label
+                    htmlFor="last_name"
+                    className="block text-gray-700 text-sm font-semibold"
+                  >
+                    Last Name
+                  </label>
+                  <input
+                    type="text"
+                    id="last_name"
+                    className="mt-1 p-2 border w-full rounded-md"
+                    value={profileData.last_name}
+                    onChange={(e) =>
+                      setProfileData((prevData) => ({
+                        ...prevData,
+                        last_name: e.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="mb-4">
+                  <label
+                    htmlFor="address"
+                    className="block text-gray-700 text-sm font-semibold"
+                  >
+                    Address
+                  </label>
+                  <input
+                    type="text"
+                    id="address"
+                    className="mt-1 p-2 border w-full rounded-md"
+                    value={profileData.address}
+                    onChange={(e) =>
+                      setProfileData((prevData) => ({
+                        ...prevData,
+                        address: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="mb-4">
+                  <label
+                    htmlFor="contact_number"
+                    className="block text-gray-700 text-sm font-semibold"
+                  >
+                    Contact Number
+                  </label>
+                  <input
+                    type="text"
+                    id="contact_number"
+                    className="mt-1 p-2 border w-full rounded-md"
+                    value={profileData.contact_number}
+                    onChange={(e) =>
+                      setProfileData((prevData) => ({
+                        ...prevData,
+                        contact_number: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="flex justify-center gap-4 mt-6">
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+                  >
+                    Save Changes
+                  </button>
+                  <button
+                    onClick={() => setShowUpdateProfile(false)}
+                    className="px-4 py-2 rounded-lg bg-gray-300 text-gray-800 hover:bg-gray-400 transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Logout Confirmation Modal */}
       <AnimatePresence>
         {showLogoutModal && (
           <motion.div
@@ -358,7 +546,7 @@ export default function TopBar({ currentView, setSidebarOpen }) {
                   <h2 className="text-lg font-semibold mb-2 text-gray-800">
                     Confirm Logout
                   </h2>
-                  <p className="text-sm text-gray-600 mb-6">
+                  <p className="text-sm text-gray-600 mb-4">
                     Are you sure you want to log out?
                   </p>
 

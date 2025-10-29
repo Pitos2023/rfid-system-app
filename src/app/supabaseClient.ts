@@ -46,7 +46,7 @@ export const supabaseAssistant = createClient(supabaseUrl, supabaseAnonKey, {
  * const supabase = createScopedClient("guard");
  */
 export function createScopedClient(
-  role: "admin" | "guard" | "parent" | "assistant"
+  role: "admin" | "guard" | "parent" | "assistant_principal"
 ) {
   switch (role) {
     case "admin":
@@ -55,7 +55,7 @@ export function createScopedClient(
       return supabaseGuard;
     case "parent":
       return supabaseParent;
-    case "assistant":
+    case "assistant_principal":
       return supabaseAssistant;
     default:
       return supabase;

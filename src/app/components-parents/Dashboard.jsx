@@ -10,63 +10,83 @@ export default function Students({ user }) {
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const intervalRef = useRef(null);
 
-  useEffect(() => {
-    if (typeof window !== "undefined" && user?.id) {
-      const alreadyAsked = localStorage.getItem("notifPromptShown");
-      if (!alreadyAsked) setShowNotifPrompt(true);
-    }
-  }, [user?.id]);
+  // ✅ Initialize OneSignal v16 and save player ID to Supabase
+// ✅ Initialize OneSignal v16 and save player ID to Supabase
+useEffect(() => {
+  if (typeof window === "undefined" || !user?.id) return;
 
-  const registerOneSignal = async () => {
-    if (typeof window === "undefined" || !user?.id) return;
+  const existingScript = document.querySelector(
+    'script[src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js"]'
+  );
 
-    if (!window.OneSignal) {
-      const s = document.createElement("script");
-      s.src = "https://cdn.onesignal.com/sdks/OneSignalSDK.js";
-      s.async = true;
-      document.head.appendChild(s);
-      await new Promise((res) => (s.onload = res));
-    }
+  if (!existingScript) {
+    const script = document.createElement("script");
+    script.src = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
+    script.defer = true;
+    document.head.appendChild(script);
+    script.onload = () => initOneSignal();
+  } else {
+    initOneSignal();
+  }
 
-    window.OneSignal = window.OneSignal || [];
-    window.OneSignal.push(function () {
-      window.OneSignal.init({
-        appId: process.env.NEXT_PUBLIC_ONE_SIGNAL_APP_ID,
+  async function initOneSignal() {
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    window.OneSignalDeferred.push(async function (OneSignal) {
+      if (OneSignal.initialized) return;
+
+      await OneSignal.init({
+        appId: "4bdfec2a-071e-4173-a4ba-09f512c2227a",
         allowLocalhostAsSecureOrigin: true,
       });
 
-      if (window.OneSignal.showNativePrompt) window.OneSignal.showNativePrompt();
+      OneSignal.initialized = true;
+      console.log("✅ OneSignal initialized");
 
-      window.OneSignal.getUserId(async function (playerId) {
-        if (!playerId) return;
-        try {
-          const { error } = await supabase
-            .from("users")
-            .update({ onesignal_player_id: playerId })
-            .eq("id", user.id);
-          if (error) console.error("❌ Failed to save OneSignal player id:", error);
-          else console.log("✅ Saved OneSignal player id:", playerId);
-        } catch (err) {
-          console.error("❌ Error saving player id:", err);
+      // 🔔 When permission changes to granted, save the player ID
+      OneSignal.Notifications.addEventListener("permissionChange", async (event) => {
+        console.log("🔔 Permission changed:", event.to);
+        if (event.to === "granted") {
+          await savePlayerId(OneSignal);
         }
       });
+
+      // Also try saving if already subscribed
+      await savePlayerId(OneSignal);
     });
-  };
+  }
 
-  const handleAllowNotifications = async () => {
-    setShowNotifPrompt(false);
-    localStorage.setItem("notifPromptShown", "true");
-    await registerOneSignal();
-  };
+  async function savePlayerId(OneSignal, retries = 0) {
+    try {
+      const playerId = await OneSignal.User.PushSubscription.id;
 
-  const handleIgnoreNotifications = () => {
-    setShowNotifPrompt(false);
-    localStorage.setItem("notifPromptShown", "true");
-  };
+      if (!playerId) {
+        if (retries < 5) {
+          console.warn(`⚠️ Player ID not yet available — retrying (${retries + 1}/5)...`);
+          setTimeout(() => savePlayerId(OneSignal, retries + 1), 3000);
+        } else {
+          console.error("❌ Failed to get OneSignal Player ID after multiple retries.");
+        }
+        return;
+      }
 
+      console.log("✅ OneSignal Player ID:", playerId);
+
+      const { error } = await supabase
+        .from("users")
+        .update({ onesignal_player_id: playerId })
+        .eq("id", user.id);
+
+      if (error) console.error("❌ Failed to save OneSignal ID:", error);
+      else console.log("✅ OneSignal ID saved successfully to Supabase!");
+    } catch (err) {
+      console.error("❌ Error getting OneSignal Player ID:", err);
+    }
+  }
+}, [user?.id]);
+
+  // 🎓 Fetch parent's students
   useEffect(() => {
     const fetchStudents = async () => {
       if (!user?.id) return;
@@ -82,7 +102,9 @@ export default function Students({ user }) {
       if (error) {
         console.error("Error fetching students:", error.message);
         setStudents([]);
-      } else setStudents(data || []);
+      } else {
+        setStudents(data || []);
+      }
 
       setLoadingStudents(false);
     };
@@ -90,6 +112,7 @@ export default function Students({ user }) {
     fetchStudents();
   }, [user]);
 
+  // 🧾 Fetch logs for one student
   const fetchStudentLogs = async (studentId) => {
     setLoadingLogs(true);
     try {
@@ -113,6 +136,7 @@ export default function Students({ user }) {
     }
   };
 
+  // 🪟 Modal open + auto refresh
   const handleViewLogs = async (student) => {
     setSelectedStudent(student);
     await fetchStudentLogs(student.id);
@@ -129,6 +153,7 @@ export default function Students({ user }) {
     clearInterval(intervalRef.current);
   };
 
+  // 🌀 Loading states
   if (loadingStudents)
     return (
       <div className="flex justify-center items-center h-[70vh]">
@@ -147,6 +172,7 @@ export default function Students({ user }) {
 
   return (
     <div id="studentsView" className="p-4">
+      {/* 👩‍🎓 Student cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {students.map((s) => (
           <div
@@ -171,19 +197,19 @@ export default function Students({ user }) {
                 {s.first_name} {s.last_name}
               </h3>
               <p className="text-gray-600 text-sm truncate">
-                Grade {s.grade_level} - {s.section}
+                {s.grade_level} - {s.section}
               </p>
             </div>
 
             <div className="p-4">
               <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
                 <div>
-                  <label className="font-medium text-gray-500">Student ID</label>
-                  <p className="text-gray-800 font-semibold truncate">{s.school_id}</p>
+                  <label className="font-medium px-5 text-gray-500">Student ID</label>
+                  <p className="text-gray-800 px-4 font-semibold truncate">{s.school_id}</p>
                 </div>
                 <div>
-                  <label className="font-medium text-gray-500">Birthdate</label>
-                  <p className="text-gray-800 font-semibold">
+                  <label className="font-medium px-8 text-gray-500">Birthdate</label>
+                  <p className="text-gray-800 px-7 font-semibold">
                     {s.birthdate ? new Date(s.birthdate).toLocaleDateString() : "—"}
                   </p>
                 </div>
@@ -200,6 +226,7 @@ export default function Students({ user }) {
         ))}
       </div>
 
+      {/* 📜 Modal for student logs */}
       {showModal && selectedStudent && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl w-[90%] max-w-2xl p-4 relative">
@@ -217,14 +244,13 @@ export default function Students({ user }) {
             {loadingLogs ? (
               <p className="text-center text-gray-500 text-sm">Loading logs...</p>
             ) : studentLogs.length === 0 ? (
-              <p className="text-center text-gray-500 text-sm">No logs found for this student.</p>
+              <p className="text-center text-gray-500 text-sm">
+                No logs found for this student.
+              </p>
             ) : (
               <div className="max-h-[50vh] overflow-y-auto divide-y divide-gray-100 text-sm">
                 {studentLogs.map((log) => (
-                  <div
-                    key={log.id}
-                    className="flex justify-between items-center py-1.5"
-                  >
+                  <div key={log.id} className="flex justify-between items-center py-1.5">
                     <div>
                       <p className="font-semibold text-gray-800 capitalize">
                         {log.action.replace("_", " ")}
@@ -246,34 +272,6 @@ export default function Students({ user }) {
                 ))}
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {showNotifPrompt && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-[90%] max-w-sm text-center">
-            <h2 className="text-lg font-semibold mb-3 text-gray-800">
-              Enable Notifications?
-            </h2>
-            <p className="text-gray-600 mb-4 text-sm">
-              Would you like to receive notifications when your student scans in
-              or out?
-            </p>
-            <div className="flex justify-center gap-2">
-              <button
-                onClick={handleAllowNotifications}
-                className="bg-[#800000] text-white px-4 py-1 rounded-lg font-semibold hover:bg-[#9c1c1c] transition text-sm"
-              >
-                Allow
-              </button>
-              <button
-                onClick={handleIgnoreNotifications}
-                className="bg-gray-300 text-gray-700 px-4 py-1 rounded-lg font-semibold hover:bg-gray-400 transition text-sm"
-              >
-                Ignore
-              </button>
-            </div>
           </div>
         </div>
       )}

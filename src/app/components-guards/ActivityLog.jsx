@@ -1,14 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useState, useEffect, useRef } from "react";
+import { createScopedClient } from "../supabaseClient";  // Import the role-based client
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
-
-export default function ActivityLog() {
+const ActivityLog = () => {
   const [logs, setLogs] = useState([]);
   const [cardNumber, setCardNumber] = useState("");
   const [scanning, setScanning] = useState(false);
@@ -17,6 +12,9 @@ export default function ActivityLog() {
   const [showModal, setShowModal] = useState(false);
   const [scannedStudent, setScannedStudent] = useState(null);
   const [mobileDropdownOpen, setMobileDropdownOpen] = useState(false);
+
+  // User state to store the logged-in user details
+  const [user, setUser] = useState(null);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(0);
@@ -28,15 +26,55 @@ export default function ActivityLog() {
     { key: "month", label: "This Month" },
   ];
 
+  // Dynamically select the correct Supabase client based on the role
+  const role = sessionStorage.getItem("role") || "guard";  // Get the current role from sessionStorage or default to 'parent'
+  const supabase = createScopedClient(role);  // Use role-specific client
+
+// ✅ Fetch user info using the role-based client
+useEffect(() => {
+  const fetchUser = async () => {
+    console.log("🔄 Fetching user info...");
+
+    const { data: { session } } = await supabase.auth.getSession();
+    console.log("👤 User session:", session);
+
+    if (session?.user) {
+      console.log("🚀 User is logged in. Fetching user details...");
+
+      const { data, error } = await supabase
+        .from("users")
+        .select("first_name, last_name, email")
+        .eq("id", session.user.id)
+        .single();
+
+      if (!error) {
+        console.log("✅ User data fetched successfully:", data);
+        setUser(data);  // Set user data
+      } else {
+        console.error("❌ Error fetching user:", error);
+        setUser({ first_name: "Unknown", last_name: "Officer", email: "N/A" });  // Set fallback value
+      }
+    } else {
+      console.log("🚨 No user session found.");
+      setUser({ first_name: "Unknown", last_name: "Officer", email: "N/A" });  // Set fallback value if no session
+    }
+  };
+
+  fetchUser();
+}, [supabase]);  // Dependency on supabase client
+
+
   // ✅ Fetch logs from API
   const fetchLogs = async () => {
     try {
+      console.log("🔄 Fetching logs...");
       setLoading(true);
       const res = await fetch("/api/rfid-logs");
       const json = await res.json();
+      console.log("📋 Logs fetched:", json.logs);
       setLogs(json.logs || []);
     } catch (err) {
-      console.error("Error fetching logs:", err);
+      console.error("❌ Error fetching logs:", err);
     } finally {
       setLoading(false);
     }
@@ -52,7 +90,6 @@ export default function ActivityLog() {
 
     const channel = supabase
       .channel("log-updates")
-      // When any row changes in 'log'
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "log" },
@@ -61,7 +98,6 @@ export default function ActivityLog() {
           fetchLogs();
         }
       )
-      // Listen for broadcast messages (from consent-response or others)
       .on("broadcast", { event: "log_refresh" }, (payload) => {
         console.log("📡 Broadcast received:", payload);
         fetchLogs();
@@ -74,16 +110,6 @@ export default function ActivityLog() {
     };
   }, []);
 
-  // ✅ Legacy fallback (still works with window event)
-  useEffect(() => {
-    const handleRefresh = () => {
-      console.log("🔄 Manual refresh triggered by window event");
-      fetchLogs();
-    };
-    window.addEventListener("refreshLogs", handleRefresh);
-    return () => window.removeEventListener("refreshLogs", handleRefresh);
-  }, []);
-
   // ✅ Handle RFID Scan
   const handleScan = async (e) => {
     e.preventDefault();
@@ -91,6 +117,7 @@ export default function ActivityLog() {
 
     setScanning(true);
     try {
+      console.log("🔄 Scanning RFID...");
       const res = await fetch("/api/rfid-scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -98,6 +125,8 @@ export default function ActivityLog() {
       });
 
       const data = await res.json();
+      console.log("📋 RFID scan response:", data);
+
       if (data.success) {
         await new Promise((r) => setTimeout(r, 300));
         await fetchLogs();
@@ -120,7 +149,7 @@ export default function ActivityLog() {
 
       setCardNumber("");
     } catch (err) {
-      console.error("Error scanning:", err);
+      console.error("❌ Error scanning:", err);
       alert("Error scanning: " + err.message);
     } finally {
       setScanning(false);
@@ -397,4 +426,6 @@ export default function ActivityLog() {
       `}</style>
     </div>
   );
-}
+};
+
+export default ActivityLog;

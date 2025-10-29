@@ -76,7 +76,7 @@ export default function LandingPage() {
       // Choose proper Supabase client for session isolation
       let supabaseClient;
       if (role === "admin") supabaseClient = supabaseAdmin;
-      else if (role === "assistant") supabaseClient = supabaseAssistant;
+      else if (role === "assistant_principal") supabaseClient = supabaseassistant_principal;
       else if (role === "guard") supabaseClient = supabaseGuard;
       else if (role === "parent") supabaseClient = supabaseParent;
       else {
@@ -98,7 +98,7 @@ export default function LandingPage() {
       // 🎯 Redirect based on role
       setTimeout(() => {
         if (role === "admin") router.push("/admin");
-        else if (role === "assistant") router.push("/assistant");
+        else if (role === "assistant_principal") router.push("/assistant");
         else if (role === "parent") router.push("/parents");
         else if (role === "guard") router.push("/guards");
         else router.push("/");

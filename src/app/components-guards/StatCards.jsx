@@ -4,12 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { motion } from "framer-motion";
 import { Users, Activity, HeartPulse } from "lucide-react";
-
-// ✅ Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+import { createScopedClient } from "../supabaseClient";  // Import the role-based client
 
 // --- Stat Card UI Component
 const StatCard = ({ title, value, note, color, Icon }) => (
@@ -47,6 +42,10 @@ export default function StatCards() {
   const [officer, setOfficer] = useState("Loading...");
   const [loading, setLoading] = useState(true);
 
+  // Dynamically select the correct Supabase client based on the role
+  const role = sessionStorage.getItem("role") || "guard";  // Get the current role from sessionStorage or default to 'guard'
+  const supabase = createScopedClient(role);  // Use role-specific client
+
   // ✅ Fetch logged-in user (officer)
   const fetchOfficer = async () => {
     const { data, error } = await supabase.auth.getUser();
@@ -65,7 +64,7 @@ export default function StatCards() {
       fullName = email;
     }
 
-    // avoid duplicate email display
+    // Avoid duplicate email display
     setOfficer(fullName === email ? email : `${fullName} (${email})`);
   };
 
@@ -122,7 +121,7 @@ export default function StatCards() {
     }
   };
 
-  // ✅ useEffect hooks
+  // ✅ useEffect hooks with a stable dependency array
   useEffect(() => {
     fetchOfficer();
     fetchStats();
@@ -149,7 +148,7 @@ export default function StatCards() {
       supabase.removeChannel(logChannel);
       supabase.removeChannel(sickChannel);
     };
-  }, []);
+  }, []);  // Empty dependency array
 
   if (loading)
     return (
@@ -163,7 +162,9 @@ export default function StatCards() {
       {/* Officer Info (outside cards) */}
       <div className="mb-4">
         <h3 className="text-gray-700 font-semibold text-sm">Security Officer</h3>
-        <p className="text-[#800000] font-bold text-base break-all">{officer}</p>
+        <p className="text-[#800000] font-bold text-base break-all">
+          {officer === "Loading..." ? "Loading officer..." : officer}
+        </p>
       </div>
 
       {/* Stat Cards */}
