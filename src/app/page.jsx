@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   supabaseAdmin,
   supabaseAssistant,
@@ -22,6 +22,7 @@ export default function LandingPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+  const [redirectLoading, setRedirectLoading] = useState(false); // ✅ for modal loading
   const [currentImage, setCurrentImage] = useState(0);
 
   // 🖼️ Background carousel
@@ -46,7 +47,6 @@ export default function LandingPage() {
     setSuccess("");
 
     try {
-      // Use a TEMP client to avoid overriding any role-specific session
       const { data: tempLogin, error: signInError } =
         await supabaseTemp.auth.signInWithPassword({
           email: email.trim(),
@@ -59,7 +59,6 @@ export default function LandingPage() {
         return;
       }
 
-      // 🧠 Get user info (and detect role)
       const { data: userRow, error: fetchError } = await supabaseTemp
         .from("users")
         .select("id, role, first_name, email")
@@ -74,7 +73,6 @@ export default function LandingPage() {
 
       const role = userRow.role?.toLowerCase();
 
-      // Choose proper Supabase client for session isolation
       let supabaseClient;
       if (role === "admin") supabaseClient = supabaseAdmin;
       else if (role === "assistant_principal") supabaseClient = supabaseAssistant;
@@ -86,32 +84,28 @@ export default function LandingPage() {
         return;
       }
 
-      // Ensure temp session is cleared before proceeding
       await supabaseTemp.auth.signOut();
+      sessionStorage.setItem("role", role);
 
-      // Persist role for downstream scoped clients
-      try {
-        sessionStorage.setItem("role", role);
-      } catch {}
-
-      // Sign in again to the correct role-based client
       await supabaseClient.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
 
-      // ✅ Store session and user data per role
       localStorage.setItem(`${role}-user`, JSON.stringify(userRow));
       setSuccess(`✅ Welcome back, ${userRow?.first_name || "User"}!`);
 
-      // 🎯 Redirect based on role
+      // 🕐 Show transparent modal loading
+      setRedirectLoading(true);
+      setShowLogin(false);
+
       setTimeout(() => {
         if (role === "admin") router.push("/admin");
         else if (role === "assistant_principal") router.push("/assistant");
         else if (role === "parent") router.push("/parents");
         else if (role === "guard") router.push("/guards");
         else router.push("/");
-      }, 1000);
+      }, 2000);
     } catch (err) {
       console.error(err);
       setError("⚠️ Something went wrong. Please try again.");
@@ -127,17 +121,18 @@ export default function LandingPage() {
         className="absolute inset-0 bg-cover bg-center transition-all duration-1000"
         style={{ backgroundImage: `url(${images[currentImage]})` }}
       ></div>
-
       <div className="absolute inset-0 bg-[#800000] opacity-60"></div>
 
       {/* Welcome screen */}
-      {!showLogin && (
+      {!showLogin && !redirectLoading && (
         <div className="relative z-10 flex flex-col items-center justify-center h-screen text-center px-6">
           <h1 className="text-4xl font-bold text-white mb-4">
             Welcome to School System
           </h1>
           <p className="text-white max-w-xl mb-8">
-            Manage students, staff, and notifications seamlessly.
+            Manage students, staff, and notifications seamlessly. 
+            Our platform is designed to simplify the administrative
+             workload, allowing you to focus more on fostering an engaging learning environment.
           </p>
           <motion.button
             onClick={() => setShowLogin(true)}
@@ -151,21 +146,24 @@ export default function LandingPage() {
       )}
 
       {/* Login Modal */}
-      {showLogin && (
+      {showLogin && !redirectLoading && (
         <div className="fixed inset-0 flex items-center justify-center z-20 px-4">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
+
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.3 }}
-            className="bg-white/90 shadow-lg rounded-2xl p-6 sm:p-8 w-full max-w-md relative backdrop-blur-sm"
+            className="bg-white/95 shadow-lg rounded-2xl p-6 sm:p-8 w-full max-w-md relative z-30"
           >
-            {/* Close Button */}
-            <button
-              onClick={() => setShowLogin(false)}
-              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 text-xl font-bold"
-            >
-              ✕
-            </button>
+            {!loading && (
+              <button
+                onClick={() => setShowLogin(false)}
+                className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 text-xl font-bold"
+              >
+                ✕
+              </button>
+            )}
 
             <div className="flex flex-col items-center mb-6">
               <img src="/spc-logo.png" alt="SPC Logo" className="w-24 h-24 mb-3" />
@@ -187,6 +185,7 @@ export default function LandingPage() {
                   placeholder="Enter your email"
                   required
                   style={{ borderColor: "#800000" }}
+                  disabled={loading}
                 />
               </div>
 
@@ -202,11 +201,13 @@ export default function LandingPage() {
                     placeholder="Enter your password"
                     required
                     style={{ borderColor: "#800000" }}
+                    disabled={loading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-2 text-gray-500 hover:text-gray-700 text-sm"
+                    disabled={loading}
                   >
                     {showPassword ? "Hide" : "Show"}
                   </button>
@@ -216,18 +217,74 @@ export default function LandingPage() {
               {/* Submit */}
               <motion.button
                 type="submit"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+                whileHover={!loading ? { scale: 1.05 } : {}}
+                whileTap={!loading ? { scale: 0.95 } : {}}
                 disabled={loading}
-                className="w-full text-white py-2 rounded-lg shadow transition-colors duration-300"
+                className={`w-full text-white py-2 rounded-lg shadow transition-colors duration-300 flex justify-center items-center ${
+                  loading ? "opacity-80 cursor-not-allowed" : ""
+                }`}
                 style={{ backgroundColor: "#800000" }}
               >
-                {loading ? "Logging in..." : "Log In"}
+                {loading ? (
+                  <>
+                    <svg
+                      className="animate-spin h-5 w-5 mr-2 text-white"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                      ></path>
+                    </svg>
+                    Logging in...
+                  </>
+                ) : (
+                  "Log In"
+                )}
               </motion.button>
             </form>
           </motion.div>
         </div>
       )}
+
+      {/* 🔥 Transparent Modal Loading (after success) */}
+      <AnimatePresence>
+        {redirectLoading && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.3 }}
+              className="bg-white/95 p-8 rounded-2xl shadow-lg flex flex-col items-center"
+            >
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }}
+                className="w-10 h-10 border-4 border-[#800000] border-t-transparent rounded-full mb-4"
+              ></motion.div>
+              <p className="text-[#800000] text-lg ">
+                Loading your dashboard...
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

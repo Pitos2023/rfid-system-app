@@ -38,9 +38,19 @@ const ParentManagement = () => {
     setLoading(true);
 
     try {
+      // ✅ Create user in Supabase Auth (trigger handles DB insert)
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: newParent.email,
         password: newParent.password,
+        options: {
+          data: {
+            first_name: newParent.first_name,
+            last_name: newParent.last_name,
+            address: newParent.address,
+            contact_number: newParent.contact_number,
+            role: newParent.role,
+          },
+        },
       });
 
       if (authError) {
@@ -56,24 +66,7 @@ const ParentManagement = () => {
         return;
       }
 
-      const { error: insertError } = await supabase.from("users").insert([
-        {
-          id: userId,
-          first_name: newParent.first_name,
-          last_name: newParent.last_name,
-          email: newParent.email,
-          contact_number: newParent.contact_number,
-          address: newParent.address,
-          role: newParent.role,
-        },
-      ]);
-
-      if (insertError) {
-        alert(insertError.message);
-        setLoading(false);
-        return;
-      }
-
+      // ✅ No manual insert needed — trigger will auto-sync `users` table
       alert("User added successfully!");
       setNewParent({
         first_name: "",
@@ -99,7 +92,9 @@ const ParentManagement = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-800">User Management</h1>
+          <h1 className="text-2xl font-semibold text-gray-800">
+            User Management
+          </h1>
           <p className="text-gray-500 text-sm">
             Manage user profiles, roles, and contact information
           </p>
@@ -129,7 +124,9 @@ const ParentManagement = () => {
             {parents.map((parent, index) => (
               <tr
                 key={parent.id}
-                className={`border-t ${index % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-gray-100 transition-colors`}
+                className={`border-t ${
+                  index % 2 === 0 ? "bg-white" : "bg-gray-50"
+                } hover:bg-gray-100 transition-colors`}
               >
                 <td className="px-6 py-4">
                   <div className="font-semibold">
@@ -139,7 +136,9 @@ const ParentManagement = () => {
                 </td>
                 <td className="px-6 py-4">
                   <div>{parent.email}</div>
-                  <div className="text-gray-500 text-xs">{parent.contact_number}</div>
+                  <div className="text-gray-500 text-xs">
+                    {parent.contact_number}
+                  </div>
                 </td>
                 <td className="px-6 py-4">{parent.address}</td>
                 <td className="px-6 py-4 capitalize">{parent.role}</td>
@@ -156,7 +155,10 @@ const ParentManagement = () => {
 
             {parents.length === 0 && (
               <tr>
-                <td colSpan="5" className="px-6 py-4 text-center text-gray-500">
+                <td
+                  colSpan="5"
+                  className="px-6 py-4 text-center text-gray-500"
+                >
                   No users found.
                 </td>
               </tr>
@@ -180,91 +182,125 @@ const ParentManagement = () => {
               Add New User
             </h2>
 
-            <form onSubmit={handleAddParent} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <form
+              onSubmit={handleAddParent}
+              className="grid grid-cols-1 md:grid-cols-2 gap-6"
+            >
               {/* First Name */}
               <div className="flex flex-col">
-                <label className="text-gray-700 text-sm font-medium mb-1">First Name</label>
+                <label className="text-gray-700 text-sm font-medium mb-1">
+                  First Name
+                </label>
                 <input
                   type="text"
                   placeholder="e.g. Robert"
                   className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
                   value={newParent.first_name}
-                  onChange={(e) => setNewParent({ ...newParent, first_name: e.target.value })}
+                  onChange={(e) =>
+                    setNewParent({ ...newParent, first_name: e.target.value })
+                  }
                   required
                 />
               </div>
 
               {/* Last Name */}
               <div className="flex flex-col">
-                <label className="text-gray-700 text-sm font-medium mb-1">Last Name</label>
+                <label className="text-gray-700 text-sm font-medium mb-1">
+                  Last Name
+                </label>
                 <input
                   type="text"
                   placeholder="e.g. Smith"
                   className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
                   value={newParent.last_name}
-                  onChange={(e) => setNewParent({ ...newParent, last_name: e.target.value })}
+                  onChange={(e) =>
+                    setNewParent({ ...newParent, last_name: e.target.value })
+                  }
                   required
                 />
               </div>
 
               {/* Email */}
               <div className="flex flex-col">
-                <label className="text-gray-700 text-sm font-medium mb-1">Email</label>
+                <label className="text-gray-700 text-sm font-medium mb-1">
+                  Email
+                </label>
                 <input
                   type="email"
                   placeholder="e.g. robert@email.com"
                   className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
                   value={newParent.email}
-                  onChange={(e) => setNewParent({ ...newParent, email: e.target.value })}
+                  onChange={(e) =>
+                    setNewParent({ ...newParent, email: e.target.value })
+                  }
                   required
                 />
               </div>
 
               {/* Contact Number */}
               <div className="flex flex-col">
-                <label className="text-gray-700 text-sm font-medium mb-1">Contact Number</label>
+                <label className="text-gray-700 text-sm font-medium mb-1">
+                  Contact Number
+                </label>
                 <input
                   type="text"
                   placeholder="e.g. 09123456789"
                   className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
                   value={newParent.contact_number}
-                  onChange={(e) => setNewParent({ ...newParent, contact_number: e.target.value })}
+                  onChange={(e) =>
+                    setNewParent({
+                      ...newParent,
+                      contact_number: e.target.value,
+                    })
+                  }
                   required
                 />
               </div>
 
               {/* Address */}
               <div className="flex flex-col md:col-span-2">
-                <label className="text-gray-700 text-sm font-medium mb-1">Address</label>
+                <label className="text-gray-700 text-sm font-medium mb-1">
+                  Address
+                </label>
                 <textarea
                   placeholder="e.g. 123 Main Street, Quezon City"
                   className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none resize-none"
                   rows="2"
                   value={newParent.address}
-                  onChange={(e) => setNewParent({ ...newParent, address: e.target.value })}
+                  onChange={(e) =>
+                    setNewParent({ ...newParent, address: e.target.value })
+                  }
                   required
                 ></textarea>
               </div>
 
               {/* Password */}
               <div className="flex flex-col md:col-span-2">
-                <label className="text-gray-700 text-sm font-medium mb-1">Password</label>
+                <label className="text-gray-700 text-sm font-medium mb-1">
+                  Password
+                </label>
                 <input
                   type="password"
                   placeholder="Enter password"
                   className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
                   value={newParent.password}
-                  onChange={(e) => setNewParent({ ...newParent, password: e.target.value })}
+                  onChange={(e) =>
+                    setNewParent({ ...newParent, password: e.target.value })
+                  }
                   required
                 />
               </div>
 
               {/* Role */}
               <div className="flex flex-col md:col-span-2">
-                <label className="text-gray-700 text-sm font-medium mb-1">Role</label>
+                <label className="text-gray-700 text-sm font-medium mb-1">
+                  Role
+                </label>
                 <select
                   value={newParent.role}
-                  onChange={(e) => setNewParent({ ...newParent, role: e.target.value })}
+                  onChange={(e) =>
+                    setNewParent({ ...newParent, role: e.target.value })
+                  }
                   className="border border-gray-300 text-black rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
                   required
                 >
@@ -275,6 +311,7 @@ const ParentManagement = () => {
                 </select>
               </div>
 
+              {/* Buttons */}
               <div className="md:col-span-2 flex justify-end mt-4 gap-3">
                 <button
                   type="button"

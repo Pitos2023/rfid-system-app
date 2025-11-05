@@ -7,9 +7,7 @@ import TopBar from "../components-parents/TopBar";
 import Dashboard from "../components-parents/Dashboard";
 import Students from "../components-parents/Students";
 import ActivityLog from "../components-parents/ActivityLog";
-import Notifications from "../components-parents/Notifications";
 import { supabaseParent as supabase } from "../supabaseClient";
-
 
 export default function ParentPage() {
   const [currentView, setCurrentView] = useState("dashboard");
@@ -19,24 +17,46 @@ export default function ParentPage() {
 
   useEffect(() => {
     const fetchUser = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      console.log("🟡 [ParentPage] Initializing parent dashboard...");
 
+      // ✅ Force role isolation
+      sessionStorage.setItem("role", "parent");
+      console.log("🟢 [ParentPage] sessionStorage role set to:", sessionStorage.getItem("role"));
+
+      // ✅ Check if the supabaseParent client has its own session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError) console.error("❌ [ParentPage] Error getting session:", sessionError);
+      console.log("🟢 [ParentPage] Supabase Parent Session:", session);
+
+      // 🚨 No parent session? redirect
       if (!session) {
+        console.warn("⚠️ [ParentPage] No parent session found — redirecting to login.");
         router.push("/");
         return;
       }
 
-      const { data } = await supabase
+      // ✅ Fetch user info from 'users' table
+      const { data, error } = await supabase
         .from("users")
-        .select("id, first_name, last_name, email")
+        .select("id, first_name, last_name, email, role")
         .eq("id", session.user.id)
         .maybeSingle();
+
+      if (error) {
+        console.error("❌ [ParentPage] Error fetching user data:", error);
+      } else {
+        console.log("🟢 [ParentPage] User data loaded:", data);
+      }
+
+      // 🔍 Check localStorage to confirm unique key isolation
+      const allLocalStorageKeys = { ...localStorage };
+      console.log("📦 [ParentPage] localStorage snapshot:", allLocalStorageKeys);
 
       setUser(data);
       setLoading(false);
     };
+
     fetchUser();
   }, [router]);
 
@@ -51,8 +71,8 @@ export default function ParentPage() {
         return <Students setView={setCurrentView} user={user} />;
       case "activity":
         return <ActivityLog setView={setCurrentView} user={user} />;
-      case "notifications":
-        return <Notifications user={user} />;
+      default:
+        return null;
     }
   };
 

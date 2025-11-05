@@ -4,11 +4,12 @@ import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaUsers, FaFileAlt } from "react-icons/fa";
 import { MdDashboard, MdManageAccounts } from "react-icons/md";
-import { HiOutlineBell, HiMenu, HiX } from "react-icons/hi";
+import { HiMenu, HiX } from "react-icons/hi";
 import { User, Settings, LogOut, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "../supabaseClient";
+import AdminSettingsModal from "../components-admin/AdminSettingsModal"; // ✅ added import
 
 // ✅ Navigation items
 const navItems = [
@@ -34,15 +35,38 @@ export default function AdminLayout({ children }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [openMobileMenu, setOpenMobileMenu] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false); // ✅ new modal state
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [adminName, setAdminName] = useState(""); // ✅ admin full name
   const dropdownRef = useRef(null);
   const pathname = usePathname();
   const router = useRouter();
 
-  // ✅ Logout function
-  const handleLogout = async () => {
-    setShowLogoutModal(true);
-  };
+  // ✅ Fetch admin full name from Supabase
+  useEffect(() => {
+    const fetchAdminName = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("users")
+          .select("full_name")
+          .eq("role", "admin")
+          .single();
+
+        if (error) {
+          console.error("❌ Error fetching admin name:", error.message);
+        } else if (data) {
+          setAdminName(data.full_name);
+        }
+      } catch (err) {
+        console.error("Unexpected error:", err);
+      }
+    };
+
+    fetchAdminName();
+  }, []);
+
+  // ✅ Logout functions
+  const handleLogout = async () => setShowLogoutModal(true);
 
   const confirmLogout = async () => {
     try {
@@ -89,11 +113,7 @@ export default function AdminLayout({ children }) {
             className="md:hidden p-2 rounded-lg hover:bg-white/20 transition"
             onClick={() => setOpenMobileMenu(!openMobileMenu)}
           >
-            {openMobileMenu ? (
-              <HiX className="w-6 h-6" />
-            ) : (
-              <HiMenu className="w-6 h-6" />
-            )}
+            {openMobileMenu ? <HiX className="w-6 h-6" /> : <HiMenu className="w-6 h-6" />}
           </button>
 
           <motion.span
@@ -106,11 +126,8 @@ export default function AdminLayout({ children }) {
           </motion.span>
         </div>
 
-        {/* ✅ Right: Notification + User Dropdown */}
+        {/* ✅ Right: User Dropdown */}
         <div className="flex items-center gap-4" ref={dropdownRef}>
-          <HiOutlineBell className="w-6 h-6 text-white cursor-pointer hover:text-gray-300 transition-transform duration-300 hover:scale-110" />
-
-          {/* User Dropdown */}
           <div className="relative">
             <button
               onClick={toggleDropdown}
@@ -128,26 +145,19 @@ export default function AdminLayout({ children }) {
                   transition={{ duration: 0.2 }}
                   className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden z-50"
                 >
-                  {/* User Info */}
+                  {/* ✅ User Info */}
                   <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200">
-                    <img
-                      src="/profile.jpg"
-                      alt="Profile"
-                      className="w-10 h-10 rounded-full object-cover"
-                    />
                     <span className="font-semibold text-gray-800">
-                      Chris Manuel Pitos
+                      {adminName || "Loading..."}
                     </span>
                   </div>
 
-                  {/* See All Profiles */}
-                  <button className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700 font-medium border-b border-gray-200 transition">
-                    See all profiles
-                  </button>
-
-                  {/* Menu Items */}
+                  {/* ✅ Settings Modal Trigger */}
                   <button
-                    onClick={() => router.push("/admin/settings")}
+                    onClick={() => {
+                      setShowSettingsModal(true);
+                      setDropdownOpen(false);
+                    }}
                     className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700 font-medium transition flex items-center gap-2"
                   >
                     <Settings size={16} /> Settings & privacy
@@ -196,6 +206,12 @@ export default function AdminLayout({ children }) {
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
 
+      {/* ✅ Settings Modal */}
+      <AdminSettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+      />
+
       {/* ✅ Logout Modal */}
       <AnimatePresence>
         {showLogoutModal && (
@@ -214,32 +230,25 @@ export default function AdminLayout({ children }) {
               {isLoggingOut ? (
                 <>
                   <Loader2 className="w-10 h-10 mx-auto text-[#800000] animate-spin mb-3" />
-                  <p className="text-gray-700 font-medium">
-                    Logging out, please wait...
-                  </p>
+                  <p className="text-gray-700 font-medium">Logging out, please wait...</p>
                 </>
               ) : (
                 <>
-                  <h2 className="text-lg font-semibold text-gray-800 mb-2">
-                    Confirm Logout
-                  </h2>
-                  <p className="text-gray-600 mb-4">
-                    Are you sure you want to log out?
-                  </p>
+                  <h2 className="text-lg font-semibold text-gray-800 mb-2">Confirm Logout</h2>
+                  <p className="text-gray-600 mb-4">Are you sure you want to log out?</p>
                   <div className="flex justify-center gap-4">
-                      <button
+                    <button
                       onClick={confirmLogout}
                       className="px-4 py-2 bg-[#800000] text-white rounded-lg hover:bg-[#a00000] transition"
                     >
                       Yes
-                    </button> 
+                    </button>
                     <button
                       onClick={() => setShowLogoutModal(false)}
                       className="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400 transition"
                     >
                       No
                     </button>
-                 
                   </div>
                 </>
               )}

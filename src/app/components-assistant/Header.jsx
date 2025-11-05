@@ -4,14 +4,58 @@ import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { User, Settings, LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../supabaseClient";
+import { createScopedClient } from "../supabaseClient"; // ✅ role-based client
 
 export default function Header() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const dropdownRef = useRef(null);
+  const [assistantName, setAssistantName] = useState("Loading...");
   const router = useRouter();
+
+  // ✅ Get role-based Supabase client
+  const role = sessionStorage.getItem("role") || "assistant_principal";
+  const supabase = createScopedClient(role);
+
+const fetchUser = async () => {
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    console.log("🟢 Current session:", session);
+
+    if (!session?.user) {
+      console.log("⚠️ No session user found");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("users")
+      .select("") // 🔧 select all columns temporarily
+      .eq("id", session.user.id)
+      .single();
+
+    console.log("🟢 Query result:", data);
+    console.log("🟡 Query error:", error);
+
+    if (error) {
+      console.error("❌ Error fetching assistant principal name:", error);
+    } else if (data) {
+      // Try both column name versions
+      setAssistantName(data.Full_name || data.full_name || "Unknown");
+    } else {
+      console.warn("⚠️ No data found for assistant principal");
+    }
+  } catch (err) {
+    console.error("❌ Unexpected error:", err.message);
+  }
+};
+
+  useEffect(() => {
+    fetchUser(); // ✅ run once on mount
+  }, [supabase]);
 
   // ✅ Toggle dropdown
   const toggleDropdown = () => setDropdownOpen(!dropdownOpen);
@@ -27,13 +71,16 @@ export default function Header() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // ✅ Logout function with loading modal
+  // ✅ Logout
   const handleLogout = async () => {
     setLoading(true);
-    setConfirmLogout(false); // close confirm modal
+    setConfirmLogout(false);
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
+
+      sessionStorage.removeItem("role");
+
       setTimeout(() => {
         setLoading(false);
         router.push("/");
@@ -46,9 +93,7 @@ export default function Header() {
   };
 
   return (
-    <header
-      className="w-full flex items-center justify-between px-6 py-4 shadow bg-[#800000] text-white"
-    >
+    <header className="w-full flex items-center justify-between px-6 py-4 shadow bg-[#800000] text-white">
       <motion.h1
         className="text-lg font-bold tracking-wide"
         initial={{ opacity: 0, y: -10 }}
@@ -77,14 +122,11 @@ export default function Header() {
               transition={{ duration: 0.2 }}
               className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden z-50 text-gray-800"
             >
-              {/* Profile Info */}
+              {/* 👤 Profile Info */}
               <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200">
-                <img
-                  src="/profile.jpg"
-                  alt="Profile"
-                  className="w-10 h-10 rounded-full object-cover"
-                />
-                <span className="font-semibold">Chris Manuel Pitos</span>
+                <span className="font-semibold text-gray-800">
+                  {assistantName}
+                </span>
               </div>
 
               <button className="w-full text-left px-4 py-2 hover:bg-gray-100 border-b border-gray-200 transition">

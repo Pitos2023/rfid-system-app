@@ -234,23 +234,19 @@ export default function TopBar({ currentView, setSidebarOpen }) {
     <>
       <header className="w-full flex justify-between items-center px-6 py-4 bg-white shadow-md relative z-30">
         {/* Left Section */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setSidebarOpen((prev) => !prev)}
-            className="text-gray-600 hover:text-gray-900 focus:outline-none lg:hidden"
-          >
-            ☰
-          </button>
-          <div>
-            <h1 className="text-xl font-semibold text-gray-800">
-              {currentView === "notifications" ? "Notifications" : "Dashboard"}
-            </h1>
-            <p className="text-sm text-gray-500">
-              Welcome back, {user?.first_name} {user?.last_name}
-            </p>
-          </div>
-        </div>
-
+       <div className="flex items-center gap-3 w-full justify-between lg:justify-start">
+  <button
+    onClick={() => setSidebarOpen((prev) => !prev)}
+    className="text-gray-600 hover:text-gray-900 focus:outline-none lg:hidden"
+  >
+    ☰
+  </button>
+  <div className="flex-1 flex justify-center lg:justify-start">
+    <h1 className="text-xl font-semibold text-gray-800">
+      {currentView === "notifications" ? "Notifications" : "Dashboard"}
+    </h1>
+  </div>
+</div>
         {/* Right Section */}
         <div className="flex items-center gap-4">
           {/* 🔔 Notifications Dropdown */}
@@ -277,7 +273,8 @@ export default function TopBar({ currentView, setSidebarOpen }) {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
-                  className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden"
+                 className="absolute right-1 mt-2 w-60 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden ml-4"
+
                 >
                   <div className="flex justify-between items-center p-3 border-b">
                     <span className="font-semibold text-gray-700">
@@ -426,7 +423,7 @@ export default function TopBar({ currentView, setSidebarOpen }) {
                   <input
                     type="text"
                     id="first_name"
-                    className="mt-1 p-2 border w-full rounded-md"
+                    className="mt-1 text-black p-2 border w-full rounded-md"
                     value={profileData.first_name}
                     onChange={(e) =>
                       setProfileData((prevData) => ({
@@ -447,7 +444,7 @@ export default function TopBar({ currentView, setSidebarOpen }) {
                   <input
                     type="text"
                     id="last_name"
-                    className="mt-1 p-2 border w-full rounded-md"
+                    className="mt-1 text-black p-2 border w-full rounded-md"
                     value={profileData.last_name}
                     onChange={(e) =>
                       setProfileData((prevData) => ({
@@ -468,7 +465,7 @@ export default function TopBar({ currentView, setSidebarOpen }) {
                   <input
                     type="text"
                     id="address"
-                    className="mt-1 p-2 border w-full rounded-md"
+                    className="mt-1 text-black p-2 border w-full rounded-md"
                     value={profileData.address}
                     onChange={(e) =>
                       setProfileData((prevData) => ({
@@ -488,7 +485,7 @@ export default function TopBar({ currentView, setSidebarOpen }) {
                   <input
                     type="text"
                     id="contact_number"
-                    className="mt-1 p-2 border w-full rounded-md"
+                    className="mt-1 text-black p-2 border w-full rounded-md"
                     value={profileData.contact_number}
                     onChange={(e) =>
                       setProfileData((prevData) => ({

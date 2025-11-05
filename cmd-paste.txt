@@ -1,0 +1,2 @@
+cd C:\rfid-system-app
+ngrok http 3000
