@@ -12,8 +12,11 @@ import {
 } from "lucide-react";
 
 export default function AssistantPrincipalDashboard() {
-  const role = (typeof window !== "undefined" && sessionStorage.getItem("role")) || "assistant_principal";
+  const role =
+    (typeof window !== "undefined" && sessionStorage.getItem("role")) ||
+    "assistant_principal";
   const supabase = createScopedClient(role);
+
   // ================= Compose Notification States =================
   const [type, setType] = useState("announcement");
   const [subType, setSubType] = useState("");
@@ -53,15 +56,20 @@ export default function AssistantPrincipalDashboard() {
         .from("student")
         .select("grade_level")
         .order("grade_level", { ascending: true });
-  
+
       if (!error && data) {
-        // Sort grades in numerical order from Grade 7 to Grade 12
         const sortedGrades = [
-          "Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12"
+          "Grade 7",
+          "Grade 8",
+          "Grade 9",
+          "Grade 10",
+          "Grade 11",
+          "Grade 12",
         ];
         const uniqueGrades = [...new Set(data.map((s) => s.grade_level))];
-        const organizedGrades = uniqueGrades.filter(grade => sortedGrades.includes(grade))
-                                            .sort((a, b) => sortedGrades.indexOf(a) - sortedGrades.indexOf(b));
+        const organizedGrades = uniqueGrades
+          .filter((grade) => sortedGrades.includes(grade))
+          .sort((a, b) => sortedGrades.indexOf(a) - sortedGrades.indexOf(b));
         setGrades(organizedGrades);
       }
     };
@@ -85,7 +93,7 @@ export default function AssistantPrincipalDashboard() {
         case "Exam":
           setTitle("Upcoming Examination");
           setMessage(
-            "Please be remind your students to take the exam today. Prepare accordingly."
+            "Please remind your students to take the exam today. Prepare accordingly."
           );
           break;
         case "Holiday":
@@ -130,7 +138,9 @@ export default function AssistantPrincipalDashboard() {
     }
     setLoading(true);
     setStatus("");
+
     try {
+      // Fetch users
       const { data: usersData, error: usersError } = await supabase
         .from("users")
         .select("id, role, email, full_name");
@@ -163,11 +173,27 @@ export default function AssistantPrincipalDashboard() {
         created_at: new Date(),
       }));
 
+      // ✅ Insert notifications and send OneSignal push
       if (notifications.length > 0) {
         const { error: insertError } = await supabase
           .from("notifications")
           .insert(notifications);
         if (insertError) throw insertError;
+
+        // 🔥 Send push notification to OneSignal
+        console.log("📡 Sending push notification to OneSignal...");
+        debugger; // ✅ Breakpoint to debug OneSignal push
+        try {
+          const response = await fetch("/api/send-push", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, message }),
+          });
+          const result = await response.json();
+          console.log("✅ OneSignal Response:", result);
+        } catch (pushError) {
+          console.error("❌ OneSignal push failed:", pushError);
+        }
 
         setStatus("✅ Notifications sent successfully!");
         setAnnouncementPage(0);
@@ -201,7 +227,7 @@ export default function AssistantPrincipalDashboard() {
       const mapped = data.map((item) => ({
         title: item.title || "No Title",
         message: item.message || "",
-        urgency: item.type === "urgent" ? "URGENT" : "NORMAL",
+        urgency: item.type === "urgent" ? "URGENT" : "ANNOUNCEMENT",
         date: new Date(item.created_at).toLocaleString("en-US", {
           timeZone: "Asia/Manila",
           dateStyle: "short",
@@ -481,19 +507,19 @@ export default function AssistantPrincipalDashboard() {
                       setAnnouncementPage(Math.max(0, announcementPage - 1))
                     }
                     disabled={announcementPage === 0}
-                    className="px-3 py-1 bg-[#800000] text-white rounded-lg disabled:opacity-50"
+                    className="px-3 py-1 bg-[#800000] text-white rounded-md hover:bg-[#660000] disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
                   >
-                    Previous
+                    Prev
                   </button>
 
                   {[...Array(totalAnnouncementPages)].map((_, idx) => (
                     <button
                       key={idx}
                       onClick={() => handleAnnouncementPageClick(idx)}
-                      className={`px-3 py-1 rounded-lg transition-all duration-150 ${
-                        idx === announcementPage
-                          ? "bg-[#800000] text-white font-semibold scale-105"
-                          : "bg-[#F4E4E4] border border-[#800000] text-[#800000] hover:bg-[#ffd6d6]"
+                      className={`px-3 py-1 rounded-md text-sm ${
+                        announcementPage === idx
+                          ? "bg-[#660000] text-white"
+                          : "bg-gray-300 text-black hover:bg-gray-400"
                       }`}
                     >
                       {idx + 1}
@@ -503,11 +529,14 @@ export default function AssistantPrincipalDashboard() {
                   <button
                     onClick={() =>
                       setAnnouncementPage(
-                        Math.min(totalAnnouncementPages - 1, announcementPage + 1)
+                        Math.min(
+                          totalAnnouncementPages - 1,
+                          announcementPage + 1
+                        )
                       )
                     }
-                    disabled={announcementPage === totalAnnouncementPages - 1}
-                    className="px-3 py-1 bg-[#800000] text-white rounded-lg disabled:opacity-50"
+                    disabled={announcementPage >= totalAnnouncementPages - 1}
+                    className="px-3 py-1 bg-[#800000] text-white rounded-md hover:bg-[#660000] disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
                   >
                     Next
                   </button>
@@ -517,71 +546,82 @@ export default function AssistantPrincipalDashboard() {
           </div>
         </div>
 
-        {/* History Viewer */}
-        <div className="bg-[#F4E4E4] p-6 rounded-2xl shadow-lg border border-[#800000] max-w-full">
+        {/* History Logs */}
+        <div className="bg-[#F4E4E4] p-6 rounded-2xl shadow-lg border border-[#800000]">
           <h3 className="text-base md:text-lg font-semibold mb-4 text-[#800000]">
-            History Viewer
+            History Logs
           </h3>
           {historyLoading ? (
-            <p className="text-gray-700 text-sm">Loading logs...</p>
+            <p className="text-gray-700 text-sm">Loading history logs...</p>
           ) : historyLogs.length === 0 ? (
-            <p className="text-gray-700 text-sm">No logs available.</p>
+            <p className="text-gray-700 text-sm">No history logs found.</p>
           ) : (
-            <ul className="space-y-3 text-black text-sm">
-              {historyLogs.map((log, idx) => (
-                <li
-                  key={idx}
-                  className="p-4 border border-[#800000] rounded-lg hover:shadow-xl transition-shadow duration-200 bg-white"
-                >
-                  <div className="flex justify-between items-center mb-1">
-                    <p className="text-sm text-[#800000]">{log.title}</p>
-                    <span className="text-[10px] text-gray-500">{log.date}</span>
-                  </div>
-                  <div className="flex justify-between text-[10px] text-gray-700">
-                    <p>
-                      RFID: {log.rfid} - {log.studentName}
+            <>
+              <ul className="space-y-3 text-black text-sm">
+                {historyLogs.map((item, idx) => (
+                  <li
+                    key={idx}
+                    className="p-4 border border-[#800000] rounded-lg bg-white hover:shadow-xl transition-shadow duration-200"
+                  >
+                    <div className="flex justify-between items-center mb-1">
+                      <h4 className="font-semibold text-[#800000] text-sm">
+                        {item.title}
+                      </h4>
+                      <span className="text-xs text-gray-600">{item.date}</span>
+                    </div>
+                    <p className="text-xs mb-1">
+                      <strong>Student:</strong> {item.studentName}
                     </p>
-                    <p>Consent: {log.consent}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    <p className="text-xs mb-1">
+                      <strong>RFID:</strong> {item.rfid}
+                    </p>
+                    <p className="text-xs">
+                      <strong>Consent:</strong> {item.consent}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+
+              {/* Pagination */}
+              <div className="flex justify-center items-center mt-5 space-x-2 flex-wrap gap-1">
+                <button
+                  onClick={() =>
+                    setHistoryPage(Math.max(0, historyPage - 1))
+                  }
+                  disabled={historyPage === 0}
+                  className="px-3 py-1 bg-[#800000] text-white rounded-md hover:bg-[#660000] disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                >
+                  Prev
+                </button>
+
+                {[...Array(totalHistoryPages)].map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleHistoryPageClick(idx)}
+                    className={`px-3 py-1 rounded-md text-sm ${
+                      historyPage === idx
+                        ? "bg-[#660000] text-white"
+                        : "bg-gray-300 text-black hover:bg-gray-400"
+                    }`}
+                  >
+                    {idx + 1}
+                  </button>
+                ))}
+
+                <button
+                  onClick={() =>
+                    setHistoryPage(
+                      Math.min(totalHistoryPages - 1, historyPage + 1)
+                    )
+                  }
+                  disabled={historyPage >= totalHistoryPages - 1}
+                  className="px-3 py-1 bg-[#800000] text-white rounded-md hover:bg-[#660000] disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                >
+                  Next
+                </button>
+              </div>
+            </>
           )}
-
-          {/* History Pagination */}
-          <div className="flex justify-center items-center mt-5 space-x-2 flex-wrap gap-1">
-            <button
-              onClick={() => setHistoryPage(Math.max(0, historyPage - 1))}
-              disabled={historyPage === 0}
-              className="px-3 py-1 bg-[#800000] text-white rounded-lg disabled:opacity-50"
-            >
-              Previous
-            </button>
-
-            {[...Array(totalHistoryPages)].map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleHistoryPageClick(idx)}
-                className={`px-3 py-1 rounded-lg transition-all duration-150 ${
-                  idx === historyPage
-                    ? "bg-[#800000] text-white font-semibold scale-105"
-                    : "bg-[#F4E4E4] border border-[#800000] text-[#800000] hover:bg-[#ffd6d6]"
-                }`}
-              >
-                {idx + 1}
-              </button>
-            ))}
-
-            <button
-              onClick={() =>
-                setHistoryPage(Math.min(totalHistoryPages - 1, historyPage + 1))
-              }
-              disabled={historyPage === totalHistoryPages - 1}
-              className="px-3 py-1 bg-[#800000] text-white rounded-lg disabled:opacity-50"
-            >
-              Next
-            </button>
-          </div>
         </div>
       </div>
     </div>

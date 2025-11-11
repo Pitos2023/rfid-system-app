@@ -4,8 +4,10 @@ import { useState, useEffect, useRef } from "react";
 import { createScopedClient } from "../supabaseClient";
 
 export default function Students({ user }) {
-  const role = (typeof window !== "undefined" && sessionStorage.getItem("role")) || "parent";
+  const role =
+    (typeof window !== "undefined" && sessionStorage.getItem("role")) || "parent";
   const supabase = createScopedClient(role);
+
   const [students, setStudents] = useState([]);
   const [studentLogs, setStudentLogs] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -14,7 +16,7 @@ export default function Students({ user }) {
   const [showModal, setShowModal] = useState(false);
   const intervalRef = useRef(null);
 
-  // ✅ Initialize OneSignal v16 and save player ID to Supabase
+  // ✅ Initialize OneSignal and store Player ID
   useEffect(() => {
     if (typeof window === "undefined" || !user?.id) return;
 
@@ -24,7 +26,8 @@ export default function Students({ user }) {
 
     if (!existingScript) {
       const script = document.createElement("script");
-      script.src = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
+      script.src =
+        "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
       script.defer = true;
       document.head.appendChild(script);
       script.onload = () => initOneSignal();
@@ -38,56 +41,191 @@ export default function Students({ user }) {
         if (OneSignal.initialized) return;
 
         await OneSignal.init({
-          appId: "4bdfec2a-071e-4173-a4ba-09f512c2227a",
+          appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID,
           allowLocalhostAsSecureOrigin: true,
+          notifyButton: { enable: true },
         });
 
         OneSignal.initialized = true;
-        console.log("✅ OneSignal initialized");
+        console.log("✅ OneSignal initialized successfully");
 
-        // 🔔 When permission changes to granted, save the player ID
-        OneSignal.Notifications.addEventListener("permissionChange", async (event) => {
-          console.log("🔔 Permission changed:", event.to);
-          if (event.to === "granted") {
-            await savePlayerId(OneSignal);
+        // Request permission only when it's sensible, handle rejects and fallbacks.
+        try {
+          // Only prompt if browser permission is "default" (not granted/denied)
+          if (Notification.permission === "default") {
+            // requestPermission can throw when user dismisses — catch below
+            await OneSignal.Notifications.requestPermission();
+          } else {
+            console.log("🔔 Skipping prompt, Notification.permission:", Notification.permission);
           }
+        } catch (err) {
+          // OneSignal may throw when the user dismisses the native prompt.
+          console.warn("⚠️ OneSignal.requestPermission threw:", err);
+        }
+
+        // Read final permission from browser (more reliable than relying on what requestPermission returned)
+        const finalPermission = (typeof Notification !== "undefined" && Notification.permission) || "default";
+        console.log("🔔 Permission status:", finalPermission);
+
+        if (finalPermission === "granted") {
+          await savePlayerId(OneSignal);
+        } else {
+          console.warn("🔔 Notification permission not granted; will not save player id.");
+        }
+
+        // --- DEBUG: log OneSignal internals, SW & Push subscription ---
+        async function debugOneSignal() {
+          try {
+            console.log("🔍 OneSignal object:", OneSignal);
+            // Player ID (web SDK v16+) — read safely
+            try {
+              const playerId = (OneSignal?.User?.PushSubscription && OneSignal.User.PushSubscription.id) || (OneSignal.getUserId && (await OneSignal.getUserId?.()));
+              console.log("🎯 OneSignal Player ID (from SDK):", playerId);
+            } catch (e) {
+              console.warn("⚠️ Error reading OneSignal Player ID:", e);
+            }
+
+            // Notification permission
+            console.log("🔔 Notification.permission:", Notification.permission);
+
+            // Service worker registration & push subscription
+            if ("serviceWorker" in navigator) {
+              const reg = await navigator.serviceWorker.getRegistration();
+              console.log("🧾 Service Worker registration:", reg);
+              if (reg) {
+                try {
+                  const sub = await reg.pushManager.getSubscription();
+                  console.log("🔑 PushManager subscription:", sub);
+                } catch (e) {
+                  console.warn("⚠️ pushManager.getSubscription() failed:", e);
+                }
+              } else {
+                console.warn("⚠️ No service worker registration found at page scope");
+              }
+            } else {
+              console.warn("⚠️ serviceWorker not supported in this browser");
+            }
+
+            // OneSignal Notifications event hooks (more logging)
+            try {
+              OneSignal.Notifications.addEventListener("permissionChange", (ev) =>
+                console.log("OneSignal.permissionChange ->", ev)
+              );
+
+              // Safe foreground logger — do NOT call event.notification.display() here
+              OneSignal.Notifications.addEventListener("foregroundWillDisplay", (event) => {
+                console.log("OneSignal.foregroundWillDisplay ->", event);
+              });
+
+              OneSignal.Notifications.addEventListener("notificationDisplay", (ev) =>
+                console.log("OneSignal.notificationDisplay ->", ev)
+              );
+              OneSignal.Notifications.addEventListener("notificationClick", (ev) =>
+                console.log("OneSignal.notificationClick ->", ev)
+              );
+            } catch (e) {
+              console.warn("⚠️ Unable to attach OneSignal event listeners:", e);
+            }
+          } catch (err) {
+            console.error("❌ debugOneSignal error:", err);
+          }
+        }
+
+        // call debug helper
+        debugOneSignal();
+
+        // Robust foreground handler: only prevent default if supported,
+        // otherwise let the SDK/browser show the notification.
+        OneSignal.Notifications.addEventListener(
+          "foregroundWillDisplay",
+          (event) => {
+            console.log("OneSignal.foregroundWillDisplay ->", event);
+            if (typeof event.preventDefault === "function") {
+              try {
+                event.preventDefault();
+
+                const n = event.notification || {};
+                const title = n.title || (n.headings && n.headings.en) || "Notification";
+                const body =
+                  n.body || (n.contents && n.contents.en) || n.message || "";
+                const icon = n.icon || "/icon.png";
+
+                if (Notification.permission === "granted") {
+                  new Notification(title, {
+                    body,
+                    icon,
+                    data: n.data || {},
+                  });
+                } else {
+                  console.warn("Notification permission not granted for manual display");
+                }
+              } catch (err) {
+                console.warn("⚠️ Failed to prevent/display notification:", err);
+              }
+            } else {
+              console.log("⤷ Cannot prevent SDK display on this browser; allowing default display");
+            }
+          }
+        );
+
+        // Background / permission change
+        OneSignal.Notifications.addEventListener("permissionChange", async (event) => {
+          console.log("🔄 Notification permission changed:", event.to);
+          // After permission becomes granted, try to save player id
+          if (event.to === "granted") await savePlayerId(OneSignal);
         });
 
-        // Also try saving if already subscribed
-        await savePlayerId(OneSignal);
+        // Handle notification click - redirect to dashboard
+        OneSignal.Notifications.addEventListener("notificationClick", (event) => {
+          console.log("Notification clicked:", event);
+          window.location.href = "https://mastoparietal-besottingly-dann.ngrok-free.dev/parents?view=dashboard";
+        });
       });
     }
 
+    // 🔹 Save OneSignal Player ID to Supabase (with retries & fallbacks)
     async function savePlayerId(OneSignal, retries = 0) {
       try {
-        const playerId = await OneSignal.User.PushSubscription.id;
+        // Try multiple ways to get a stable player id
+        let playerId =
+          (OneSignal?.User?.PushSubscription && OneSignal.User.PushSubscription.id) ||
+          (OneSignal.getUserId && (await OneSignal.getUserId?.())) ||
+          (OneSignal.getUser && (await OneSignal.getUser?.())?.id) ||
+          null;
 
         if (!playerId) {
-          if (retries < 5) {
-            console.warn(`⚠️ Player ID not yet available — retrying (${retries + 1}/5)...`);
-            setTimeout(() => savePlayerId(OneSignal, retries + 1), 3000);
+          // if browser permission is granted we may need to wait a bit for the SDK to register
+          if (retries < 6) {
+            console.warn(`⚠️ No Player ID found, retrying... (${retries + 1}/6)`);
+            setTimeout(() => savePlayerId(OneSignal, retries + 1), 2000);
           } else {
-            console.error("❌ Failed to get OneSignal Player ID after multiple retries.");
+            console.error("❌ Failed to retrieve OneSignal Player ID after multiple attempts.");
           }
           return;
         }
 
-        console.log("✅ OneSignal Player ID:", playerId);
+        // Save to Supabase only when we have a valid string id
+        if (typeof playerId === "string" && playerId.length > 0) {
+          const { error } = await supabase
+            .from("users")
+            .update({ onesignal_player_id: playerId })
+            .eq("id", user.id);
 
-        const { error } = await supabase
-          .from("users")
-          .update({ onesignal_player_id: playerId })
-          .eq("id", user.id);
-
-        if (error) console.error("❌ Failed to save OneSignal ID:", error);
-        else console.log("✅ OneSignal ID saved successfully to Supabase!");
+          if (error) {
+            console.error("❌ Failed to save OneSignal ID:", error);
+          } else {
+            console.log("✅ OneSignal ID saved successfully to Supabase!", playerId);
+          }
+        } else {
+          console.warn("⚠️ Player ID is not a valid string, not saving:", playerId);
+        }
       } catch (err) {
         console.error("❌ Error getting OneSignal Player ID:", err);
       }
     }
   }, [user?.id]);
 
-  // ✅ Ensure that user role is persisted correctly without overwriting
+  // ✅ Ensure role persistence
   useEffect(() => {
     if (user?.id && !sessionStorage.getItem("role")) {
       const fetchUserRole = async () => {
@@ -97,20 +235,18 @@ export default function Students({ user }) {
           .eq("id", user.id)
           .single();
 
-        if (error) {
-          console.error("Error fetching user role:", error);
-        } else {
-          const role = data?.role || "parent";  // Default to 'parent' if no role found
-          sessionStorage.setItem("role", role); // Persist role in sessionStorage if not already set
+        if (error) console.error("Error fetching user role:", error);
+        else {
+          const role = data?.role || "parent";
+          sessionStorage.setItem("role", role);
           console.log("User role:", role);
         }
       };
-
       fetchUserRole();
     }
   }, [user?.id]);
 
-  // 🎓 Fetch parent's students
+  // 🎓 Fetch students
   useEffect(() => {
     const fetchStudents = async () => {
       if (!user?.id) return;
@@ -136,7 +272,7 @@ export default function Students({ user }) {
     fetchStudents();
   }, [user]);
 
-  // 🧾 Fetch logs for one student
+  // 🧾 Fetch student logs
   const fetchStudentLogs = async (studentId) => {
     setLoadingLogs(true);
     try {
@@ -160,7 +296,7 @@ export default function Students({ user }) {
     }
   };
 
-  // 🪟 Modal open + auto refresh
+  // 🪟 Modal logic
   const handleViewLogs = async (student) => {
     setSelectedStudent(student);
     await fetchStudentLogs(student.id);
@@ -176,6 +312,54 @@ export default function Students({ user }) {
     setSelectedStudent(null);
     clearInterval(intervalRef.current);
   };
+
+  // 🔔 Realtime notifications from Supabase
+  useEffect(() => {
+    if (!user?.id) return;
+    Notification.requestPermission();
+
+    const channel = supabase
+      .channel("realtime:notifications")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${user.id}`,
+        },
+        async (payload) => {
+          const notif = payload.new;
+          console.log("📢 New notification received:", notif);
+
+          // Use service worker to show notification (required when SW is active)
+          if ("serviceWorker" in navigator && Notification.permission === "granted") {
+            try {
+              const reg = await navigator.serviceWorker.getRegistration();
+              if (reg) {
+                await reg.showNotification(notif.title || "New Alert", {
+                  body: notif.message || "You have a new notification!",
+                  icon: "/icon.png",
+                  badge: "/icon.png",
+                  data: notif,
+                });
+              } else {
+                console.warn("⚠️ No service worker registration found");
+              }
+            } catch (err) {
+              console.error("❌ Failed to show notification:", err);
+            }
+          } else {
+            // Fallback: alert if no service worker or permission denied
+            console.warn("Service worker unavailable or permission denied");
+            alert(`📢 ${notif.title}: ${notif.message}`);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [user?.id]);
 
   // 🌀 Loading states
   if (loadingStudents)
@@ -194,6 +378,23 @@ export default function Students({ user }) {
       </div>
     );
 
+  // Add this helper at the top of the component (before return statement)
+  const convertToPhilippineTime = (isoString) => {
+    const date = new Date(isoString);
+    const formatter = new Intl.DateTimeFormat("en-PH", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+    return formatter.format(date);
+  };
+
+  // 🎓 Display student list and logs modal
   return (
     <div id="studentsView" className="p-4">
       {/* 👩‍🎓 Student cards */}
@@ -204,7 +405,7 @@ export default function Students({ user }) {
             className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition"
           >
             <div className="p-4 text-center border-b border-gray-100 bg-gradient-to-b from-gray-50 to-white">
-              <div className="w-16 h-16 bg-gradient-to-br from-[#800000] to-[#9c1c1c] rounded-full flex items-center justify-center mx-auto mb-2 shadow overflow-hidden text-xs">
+              <div className="w-16 h-16 bg-gradient-to-br from-[#800000] to-[#9c1c1c] rounded-full flex items-center justify-center mx-auto mb-2 shadow overflow-hidden">
                 {s.student_pic ? (
                   <img
                     src={s.student_pic}
@@ -212,7 +413,7 @@ export default function Students({ user }) {
                     className="object-cover w-full h-full"
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-200 bg-gray-100">
+                  <div className="w-full h-full flex items-center justify-center text-gray-400 bg-gray-100 text-xs">
                     No Image
                   </div>
                 )}
@@ -228,13 +429,17 @@ export default function Students({ user }) {
             <div className="p-4">
               <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
                 <div>
-                  <label className="font-medium px-5 text-gray-500">Student ID</label>
-                  <p className="text-gray-800 px-4 font-semibold truncate">{s.school_id}</p>
+                  <label className="font-medium text-gray-500">Student ID</label>
+                  <p className="text-gray-800 font-semibold truncate">
+                    {s.school_id}
+                  </p>
                 </div>
                 <div>
-                  <label className="font-medium px-8 text-gray-500">Birthdate</label>
-                  <p className="text-gray-800 px-7 font-semibold">
-                    {s.birthdate ? new Date(s.birthdate).toLocaleDateString() : "—"}
+                  <label className="font-medium text-gray-500">Birthdate</label>
+                  <p className="text-gray-800 font-semibold">
+                    {s.birthdate
+                      ? new Date(s.birthdate).toLocaleDateString()
+                      : "—"}
                   </p>
                 </div>
               </div>
@@ -274,13 +479,16 @@ export default function Students({ user }) {
             ) : (
               <div className="max-h-[50vh] overflow-y-auto divide-y divide-gray-100 text-sm">
                 {studentLogs.map((log) => (
-                  <div key={log.id} className="flex justify-between items-center py-1.5">
+                  <div
+                    key={log.id}
+                    className="flex justify-between items-center py-1.5"
+                  >
                     <div>
                       <p className="font-semibold text-gray-800 capitalize">
                         {log.action.replace("_", " ")}
                       </p>
                       <p className="text-gray-500 text-xs">
-                        {new Date(log.time_stamp).toLocaleString()}
+                        {convertToPhilippineTime(log.time_stamp)}
                       </p>
                     </div>
                     <span

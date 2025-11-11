@@ -171,7 +171,7 @@ export default function ActivityLog({ user }) {
 
                     {/* Grade & Section */}
                     <td className="py-3 px-4 text-gray-700">
-                      Grade {log.student?.grade_level} - {log.student?.section}
+                      {log.student?.grade_level} - {log.student?.section}
                     </td>
 
                     {/* Action */}

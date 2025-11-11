@@ -79,34 +79,23 @@ export function filterThisMonth(data) {
  * ✅ Dynamic School Events Fetcher
  * Fetch notifications created by NotificationComposer.jsx
  * - Shows only type = "announcement" or "urgent"
- * - Skips duplicates and invalid entries
+ * - Does NOT fetch logs at all
  */
 export async function fetchSchoolEvents(userRole = "guard", page = 1, limit = 10) {
   try {
     const offset = (page - 1) * limit;
 
+    // ✅ Fetch only "announcement" or "urgent" directly from Supabase
     const { data, error, count } = await supabase
       .from("notifications")
       .select("id, title, message, created_at, type", { count: "exact" })
+      .in("type", ["announcement", "urgent"]) // ✅ Only include valid types
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (error) throw error;
 
-    const filtered = (data || [])
-      .filter(
-        (n) =>
-          n.type &&
-          ["announcement", "urgent"].includes(n.type.toLowerCase()) &&
-          n.title &&
-          n.message
-      )
-      .reduce((acc, curr) => {
-        if (!acc.find((x) => x.id === curr.id)) acc.push(curr);
-        return acc;
-      }, []);
-
-    const formatted = filtered.map((n) => ({
+    const formatted = (data || []).map((n) => ({
       date: new Date(n.created_at).toISOString().split("T")[0],
       time: new Date(n.created_at).toLocaleTimeString([], {
         hour: "2-digit",
@@ -129,4 +118,3 @@ export async function fetchSchoolEvents(userRole = "guard", page = 1, limit = 10
     return { events: [], totalPages: 1 };
   }
 }
-

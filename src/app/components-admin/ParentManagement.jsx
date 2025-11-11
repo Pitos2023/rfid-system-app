@@ -1,13 +1,16 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { FaUserPlus, FaEdit, FaTrash, FaTimes } from "react-icons/fa";
+import { FaUserPlus, FaEdit, FaTrash, FaTimes, FaSearch } from "react-icons/fa";
 import { supabase } from "../supabaseClient";
 
 const ParentManagement = () => {
   const [parents, setParents] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(""); // ✅ Added
+  const [filteredParents, setFilteredParents] = useState([]); // ✅ Added
+
   const [newParent, setNewParent] = useState({
     first_name: "",
     last_name: "",
@@ -21,6 +24,15 @@ const ParentManagement = () => {
   useEffect(() => {
     fetchParents();
   }, []);
+
+  useEffect(() => {
+    const filtered = parents.filter((parent) =>
+      `${parent.first_name} ${parent.last_name} ${parent.email} ${parent.contact_number} ${parent.role}`
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase())
+    );
+    setFilteredParents(filtered);
+  }, [searchQuery, parents]);
 
   const fetchParents = async () => {
     const { data, error } = await supabase
@@ -38,7 +50,6 @@ const ParentManagement = () => {
     setLoading(true);
 
     try {
-      // ✅ Create user in Supabase Auth (trigger handles DB insert)
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: newParent.email,
         password: newParent.password,
@@ -66,7 +77,6 @@ const ParentManagement = () => {
         return;
       }
 
-      // ✅ No manual insert needed — trigger will auto-sync `users` table
       alert("User added successfully!");
       setNewParent({
         first_name: "",
@@ -100,12 +110,26 @@ const ParentManagement = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center justify-center gap-2 bg-[#800000] text-white px-4 py-2 rounded-xl shadow-md hover:bg-[#9c1c1c] transition-all"
-        >
-          <FaUserPlus /> Add User
-        </button>
+        <div className="flex items-center gap-3 mt-4 md:mt-0">
+          {/* ✅ Search Bar */}
+          <div className="relative">
+            <FaSearch className="absolute left-3 top-2.5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search user..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-[#800000] focus:outline-none"
+            />
+          </div>
+
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center justify-center gap-2 bg-[#800000] text-white px-4 py-2 rounded-xl shadow-md hover:bg-[#9c1c1c] transition-all"
+          >
+            <FaUserPlus /> Add User
+          </button>
+        </div>
       </div>
 
       {/* Table */}
@@ -121,7 +145,7 @@ const ParentManagement = () => {
             </tr>
           </thead>
           <tbody className="text-gray-700 text-sm">
-            {parents.map((parent, index) => (
+            {filteredParents.map((parent, index) => (
               <tr
                 key={parent.id}
                 className={`border-t ${
@@ -153,7 +177,7 @@ const ParentManagement = () => {
               </tr>
             ))}
 
-            {parents.length === 0 && (
+            {filteredParents.length === 0 && (
               <tr>
                 <td
                   colSpan="5"

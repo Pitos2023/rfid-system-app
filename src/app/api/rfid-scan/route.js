@@ -8,17 +8,29 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-const ONESIGNAL_APP_ID = process.env.ONE_SIGNAL_APP_ID;
+// ✅ Updated OneSignal Environment Variables
+const ONESIGNAL_APP_ID = process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID;
 const ONESIGNAL_REST_KEY = process.env.ONE_SIGNAL_REST_KEY;
 
+// ✅ OneSignal Notification Function (updated)
 async function sendOneSignalNotification(playerId, title, body, data = {}) {
-  if (!playerId) return;
+  if (!playerId) {
+    console.warn("⚠️ No OneSignal Player ID provided — skipping notification.");
+    return;
+  }
+
+  console.log("📤 Sending OneSignal notification...");
+  console.log("   ▶️ Player ID:", playerId);
+  console.log("   ▶️ Title:", title);
+  console.log("   ▶️ Body:", body);
+  console.log("   ▶️ Extra Data:", data);
+
   try {
-    await fetch("https://onesignal.com/api/v1/notifications", {
+    const response = await fetch("https://onesignal.com/api/v1/notifications", {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        Authorization: `Basic ${ONESIGNAL_REST_KEY}`,
+        Authorization: `Basic ${ONESIGNAL_REST_KEY}`, // ✅ REST API Key
       },
       body: JSON.stringify({
         app_id: ONESIGNAL_APP_ID,
@@ -26,10 +38,24 @@ async function sendOneSignalNotification(playerId, title, body, data = {}) {
         headings: { en: title },
         contents: { en: body },
         data,
+        url: "https://mastoparietal-besottingly-dann.ngrok-free.dev/parents?view=dashboard",
+        web_push_topic: "rfid-scan",
+        chrome_web_icon: "https://cdn-icons-png.flaticon.com/512/1828/1828640.png",
+        ttl: 30,
       }),
     });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      console.log("✅ OneSignal notification successfully sent!");
+      console.log("   ▶️ Notification ID:", result.id);
+    } else {
+      console.error("❌ OneSignal error response:", result.errors || result);
+      console.error("Raw response:", result);
+    }
   } catch (err) {
-    console.error("❌ OneSignal send error:", err);
+    console.error("❌ OneSignal fetch error:", err);
   }
 }
 
@@ -39,7 +65,10 @@ export async function POST(req) {
     const cleanCard = String(card_number || "").trim();
 
     if (!cleanCard)
-      return new Response(JSON.stringify({ success: false, error: "card_number required" }), { status: 400 });
+      return new Response(
+        JSON.stringify({ success: false, error: "card_number required" }),
+        { status: 400 }
+      );
 
     console.log("🔹 Scanned card:", cleanCard);
 
@@ -52,10 +81,16 @@ export async function POST(req) {
 
     if (cardError && cardError.code !== "PGRST116") throw cardError;
     if (!cardData)
-      return new Response(JSON.stringify({ success: false, error: "RFID not found" }), { status: 404 });
+      return new Response(
+        JSON.stringify({ success: false, error: "RFID not found" }),
+        { status: 404 }
+      );
 
     if (!cardData.student_id)
-      return new Response(JSON.stringify({ success: false, error: "Card not linked to student" }), { status: 404 });
+      return new Response(
+        JSON.stringify({ success: false, error: "Card not linked to student" }),
+        { status: 404 }
+      );
 
     // ✅ Determine action
     const { data: lastLog } = await supabase
@@ -110,16 +145,16 @@ export async function POST(req) {
         let title, body, type = "info";
 
         if (action === "time-in") {
-          title = `Time In: ${student.first_name}`;
-          body = `${student.first_name} has entered the school.`;
-        } else {
-          // ✅ TIME-OUT triggers consent request
-          title = `Confirm Time-Out: ${student.first_name}`;
-          body = `Confirm if you want ${student.first_name} to leave the school? Please confirm.`;
-          type = "consent_request";
+          title = `${student.first_name} ${student.last_name} has checked in`;
+          body = `Has entered the school at ${new Date(manilaISO).toLocaleTimeString()}`;
+          type = "checkin";
+        } else if (action === "time-out") {
+          title = `${student.first_name} ${student.last_name} has checked out`;
+          body = `Has exited the school at ${new Date(manilaISO).toLocaleTimeString()}`;
+          type = "checkout";
         }
 
-        // ✅ Store notification (log_id added here)
+        // ✅ Store notification in database
         await supabase.from("notifications").insert([
           {
             user_id: parent.id,
@@ -129,24 +164,51 @@ export async function POST(req) {
             is_read: false,
             created_at: manilaISO,
             status: "pending",
-            log_id: newLog.id, // ✅ Added FK reference
+            log_id: newLog.id,
           },
         ]);
 
-        // ✅ Push notification
+        // ✅ Send push notification
         if (parent.onesignal_player_id) {
           await sendOneSignalNotification(parent.onesignal_player_id, title, body, {
-            student_id: student.id,
             log_id: newLog.id,
-            type,
+            student_id: student.id,
+            action,
           });
+        }
+
+        // ✅ ONLY create consent request on time-out
+        if (action === "time-out") {
+          const consentTitle = `Consent Request: ${student.first_name} ${student.last_name}`;
+          const consentMessage = `Do you allow pick-up for ${student.first_name}?`;
+
+          await supabase.from("notifications").insert([
+            {
+              user_id: parent.id,
+              title: consentTitle,
+              message: consentMessage,
+              type: "consent_request",
+              is_read: false,
+              created_at: manilaISO,
+              status: "pending",
+              log_id: newLog.id,
+            },
+          ]);
         }
       }
     }
 
-    return new Response(JSON.stringify({ success: true, action, log: newLog }), { status: 200 });
+    console.log(`✅ RFID scan processed successfully for ${cleanCard} (${action})`);
+
+    return new Response(
+      JSON.stringify({ success: true, action, log: newLog }),
+      { status: 200 }
+    );
   } catch (err) {
     console.error("❌ RFID error:", err);
-    return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500 });
+    return new Response(
+      JSON.stringify({ success: false, error: err.message }),
+      { status: 500 }
+    );
   }
 }
