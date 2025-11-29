@@ -178,7 +178,7 @@ export default function Students({ user }) {
         // Handle notification click - redirect to dashboard
         OneSignal.Notifications.addEventListener("notificationClick", (event) => {
           console.log("Notification clicked:", event);
-          window.location.href = "https://mastoparietal-besottingly-dann.ngrok-free.dev/parents?view=dashboard";
+          window.location.href = "https://sarahi-recriminatory-liane.ngrok-free.dev/parents?view=dashboard";
         });
       });
     }

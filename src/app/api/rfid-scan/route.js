@@ -59,6 +59,30 @@ async function sendOneSignalNotification(playerId, title, body, data = {}) {
   }
 }
 
+// ✅ Function to check if current time is within consent hours (12-1 PM Manila Time)
+function isWithinConsentHours() {
+  const now = new Date();
+  const manilaTime = new Date(now.getTime() + 8 * 60 * 60 * 1000); // Convert to Manila time
+  const manilaHour = manilaTime.getUTCHours(); // Since we added 8 hours, use getUTCHours()
+  
+  console.log(`🕒 Current Manila Time: ${manilaTime.toISOString()}`);
+  console.log(`🕒 Current Manila Hour: ${manilaHour}`);
+  
+  // Check if current time is between 12:00 PM and 12:59 PM (12-13 in 24-hour format)
+  return manilaHour === 12; // 12 PM to 12:59 PM
+}
+
+// ✅ Function to format Manila time for display (without double timezone conversion)
+function formatManilaTimeForDisplay(manilaISODate) {
+  const date = new Date(manilaISODate);
+  // Since manilaISODate is already in Manila time, just format it normally
+  return date.toLocaleTimeString('en-US', { 
+    hour: '2-digit', 
+    minute: '2-digit',
+    hour12: true 
+  });
+}
+
 export async function POST(req) {
   try {
     const { card_number } = await req.json();
@@ -144,17 +168,20 @@ export async function POST(req) {
       if (parent) {
         let title, body, type = "info";
 
+        // ✅ FIX: Use the format function without timezone specification
+        const displayTime = formatManilaTimeForDisplay(manilaISO);
+
         if (action === "time-in") {
           title = `${student.first_name} ${student.last_name} has checked in`;
-          body = `Has entered the school at ${new Date(manilaISO).toLocaleTimeString()}`;
+          body = `Has entered the school at ${displayTime}`;
           type = "checkin";
         } else if (action === "time-out") {
           title = `${student.first_name} ${student.last_name} has checked out`;
-          body = `Has exited the school at ${new Date(manilaISO).toLocaleTimeString()}`;
+          body = `Has exited the school at ${displayTime}`;
           type = "checkout";
         }
 
-        // ✅ Store notification in database
+        // ✅ Store notification in database with Manila time
         await supabase.from("notifications").insert([
           {
             user_id: parent.id,
@@ -162,7 +189,7 @@ export async function POST(req) {
             message: body,
             type,
             is_read: false,
-            created_at: manilaISO,
+            created_at: manilaISO, // Store with Manila time
             status: "pending",
             log_id: newLog.id,
           },
@@ -177,23 +204,32 @@ export async function POST(req) {
           });
         }
 
-        // ✅ ONLY create consent request on time-out
+        // ✅ ONLY create consent request on time-out AND during 12-1 PM
         if (action === "time-out") {
-          const consentTitle = `Consent Request: ${student.first_name} ${student.last_name}`;
-          const consentMessage = `Do you allow pick-up for ${student.first_name}?`;
+          const isConsentTime = isWithinConsentHours();
+          console.log(`⏰ Consent request allowed: ${isConsentTime}`);
+          
+          if (isConsentTime) {
+            const consentTitle = `Consent Request: ${student.first_name} ${student.last_name}`;
+            const consentMessage = `Do you allow pick-up for ${student.first_name}?`;
 
-          await supabase.from("notifications").insert([
-            {
-              user_id: parent.id,
-              title: consentTitle,
-              message: consentMessage,
-              type: "consent_request",
-              is_read: false,
-              created_at: manilaISO,
-              status: "pending",
-              log_id: newLog.id,
-            },
-          ]);
+            await supabase.from("notifications").insert([
+              {
+                user_id: parent.id,
+                title: consentTitle,
+                message: consentMessage,
+                type: "consent_request",
+                is_read: false,
+                created_at: manilaISO, // Store with Manila time
+                status: "pending",
+                log_id: newLog.id,
+              },
+            ]);
+
+            console.log("✅ Consent request created during allowed hours");
+          } else {
+            console.log("❌ Consent request NOT created - outside allowed hours (12-1 PM only)");
+          }
         }
       }
     }

@@ -1,6 +1,6 @@
 "use client";
 import Header from "./Header";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { createScopedClient } from "../supabaseClient";
 import {
   Send,
@@ -9,6 +9,11 @@ import {
   Users,
   Calendar,
   FileText,
+  Paperclip,
+  X,
+  Download,
+  Eye,
+  Search,
 } from "lucide-react";
 
 export default function AssistantPrincipalDashboard() {
@@ -27,6 +32,23 @@ export default function AssistantPrincipalDashboard() {
   const [grades, setGrades] = useState([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
+
+  // ================= Leave Notification States =================
+  const [leaveParents, setLeaveParents] = useState([]);
+  const [leaveParentsFiltered, setLeaveParentsFiltered] = useState([]);
+  const [leaveSearchQuery, setLeaveSearchQuery] = useState("");
+  const [selectedLeaveParents, setSelectedLeaveParents] = useState([]);
+  const [leaveAttachment, setLeaveAttachment] = useState(null);
+  const [leaveAttachmentName, setLeaveAttachmentName] = useState("");
+  const canvasRef = useRef(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [signature, setSignature] = useState(null);
+
+  // ================= Student Search States =================
+  const [studentSearchQuery, setStudentSearchQuery] = useState("");
+  const [searchedStudents, setSearchedStudents] = useState([]);
+  const [studentSearchLoading, setStudentSearchLoading] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState(null);
 
   // ================= Recent Announcements & Pagination =================
   const [recentAnnouncements, setRecentAnnouncements] = useState([]);
@@ -48,6 +70,10 @@ export default function AssistantPrincipalDashboard() {
     todaysEntries: 0,
     totalActivity: 0,
   });
+
+  // ================= State for modal =================
+  const [attachmentModal, setAttachmentModal] = useState(false);
+  const [selectedAttachment, setSelectedAttachment] = useState(null);
 
   // ================= Fetch grades =================
   useEffect(() => {
@@ -76,9 +102,255 @@ export default function AssistantPrincipalDashboard() {
     fetchGrades();
   }, []);
 
+  // ================= Search Students =================
+  const searchStudents = async (query) => {
+    if (!query.trim()) {
+      setSearchedStudents([]);
+      return;
+    }
+
+    setStudentSearchLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("student")
+        .select(`
+          *,
+          user:users_id (
+            first_name,
+            last_name,
+            email
+          )
+        `)
+        .or(`first_name.ilike.%${query}%,last_name.ilike.%${query}%`)
+        .limit(10);
+
+      if (error) throw error;
+
+      const formattedStudents = data.map(student => ({
+        id: student.id,
+        users_id: student.users_id,
+        first_name: student.first_name,
+        last_name: student.last_name,
+        grade_level: student.grade_level,
+        parent_name: student.user ? `${student.user.first_name} ${student.user.last_name}` : "Unknown Parent",
+        parent_email: student.user?.email || "No email"
+      }));
+
+      setSearchedStudents(formattedStudents);
+    } catch (err) {
+      console.error("❌ Student search error:", err);
+      setSearchedStudents([]);
+    } finally {
+      setStudentSearchLoading(false);
+    }
+  };
+
+  // ================= Handle Student Selection =================
+  const handleStudentSelect = async (student) => {
+    setSelectedStudent(student);
+    setStudentSearchQuery(`${student.first_name} ${student.last_name}`);
+    setSearchedStudents([]);
+
+    // Auto-generate the message with student name
+    const studentMessage = `A leave notice has been submitted for ${student.first_name} ${student.last_name} (${student.grade_level}).`;
+    setMessage(studentMessage);
+
+    // Fetch parent for the selected student
+    try {
+      const { data: parentData, error } = await supabase
+        .from("users")
+        .select("id, first_name, last_name, email")
+        .eq("role", "parent")
+        .eq("id", student.users_id)
+        .single();
+
+      if (!error && parentData) {
+        // Add the parent to selected parents if not already selected
+        if (!selectedLeaveParents.includes(parentData.id)) {
+          setSelectedLeaveParents([...selectedLeaveParents, parentData.id]);
+        }
+        // Update the leave parents list to show only this parent
+        setLeaveParents([parentData]);
+        setLeaveParentsFiltered([parentData]);
+      }
+    } catch (err) {
+      console.error("❌ Error fetching parent:", err);
+    }
+  };
+
+  // ================= Clear Student Search =================
+  const clearStudentSearch = () => {
+    setStudentSearchQuery("");
+    setSearchedStudents([]);
+    setSelectedStudent(null);
+    // Reset message when student is cleared
+    setMessage("A leave notice has been submitted.");
+    // Reset to show all parents
+    fetchLeaveParents();
+  };
+
+  // ================= Fetch Leave Parents =================
+  const fetchLeaveParents = async () => {
+    // Always fetch all parents for leave notifications (no grade level filtering)
+    const { data, error } = await supabase
+      .from("users")
+      .select("id, first_name, last_name, email")
+      .eq("role", "parent");
+
+    if (!error && data) {
+      setLeaveParents(data);
+      setLeaveParentsFiltered(data);
+    }
+  };
+
+  useEffect(() => {
+    if (type === "leave") {
+      fetchLeaveParents();
+      // Set default message for leave notifications
+      setMessage("A leave notice has been submitted.");
+    }
+  }, [type]); // Removed gradeLevel dependency
+
+  // ================= Leave Search Filter =================
+  useEffect(() => {
+    const filtered = leaveParents.filter(
+      (parent) =>
+        parent.first_name.toLowerCase().includes(leaveSearchQuery.toLowerCase()) ||
+        parent.last_name.toLowerCase().includes(leaveSearchQuery.toLowerCase()) ||
+        parent.email.toLowerCase().includes(leaveSearchQuery.toLowerCase())
+    );
+    setLeaveParentsFiltered(filtered);
+  }, [leaveSearchQuery, leaveParents]);
+
+  // ================= Student Search Effect =================
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (studentSearchQuery.trim()) {
+        searchStudents(studentSearchQuery);
+      } else {
+        setSearchedStudents([]);
+      }
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [studentSearchQuery]);
+
+  // ================= Canvas Signature Handler =================
+  const handleCanvasMouseDown = () => {
+    setIsDrawing(true);
+  };
+
+  const handleCanvasMouseMove = (e) => {
+    if (!isDrawing || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext("2d");
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const handleCanvasMouseUp = () => {
+    setIsDrawing(false);
+    if (canvasRef.current) {
+      setSignature(canvasRef.current.toDataURL());
+    }
+  };
+
+  const initializeCanvas = () => {
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext("2d");
+      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      ctx.beginPath();
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#000";
+      setSignature(null);
+    }
+  };
+
+  const clearSignature = () => {
+    initializeCanvas();
+  };
+
+  // ================= Handle File Upload =================
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      try {
+        const fileName = `${Date.now()}_${file.name}`;
+        
+        // Upload file directly to the bucket
+        const { data, error } = await supabase.storage
+          .from("leave-attachments")
+          .upload(fileName, file);
+
+        if (error) {
+          console.error("❌ Storage upload error:", error);
+          throw error;
+        }
+
+        setLeaveAttachment(file);
+        setLeaveAttachmentName(fileName);
+        alert("✅ File uploaded successfully!");
+      } catch (err) {
+        console.error("❌ File upload error:", err);
+        alert("❌ Failed to upload file. Please ensure the 'leave-attachments' bucket exists and is properly configured in Supabase Storage.");
+      }
+    }
+  };
+
+  // ================= Handle Download Attachment =================
+  const handleDownloadAttachment = async (fileName) => {
+    if (!fileName) {
+      alert("No attachment available");
+      return;
+    }
+    try {
+      const { data, error } = await supabase.storage
+        .from("leave-attachments")
+        .download(fileName);
+
+      if (error) throw error;
+
+      // Create download link
+      const url = URL.createObjectURL(data);
+      const downloadLink = document.createElement("a");
+      downloadLink.href = url;
+      downloadLink.download = fileName;
+      downloadLink.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("❌ Download error:", err);
+      alert("❌ Failed to download file");
+    }
+  };
+
+  // ================= Handle View Attachment =================
+  const handleViewAttachment = async (fileName) => {
+    if (!fileName) {
+      alert("No attachment available");
+      return;
+    }
+    try {
+      const { data } = supabase.storage
+        .from("leave-attachments")
+        .getPublicUrl(fileName);
+
+      setSelectedAttachment(data.publicUrl);
+      setAttachmentModal(true);
+    } catch (err) {
+      console.error("❌ View attachment error:", err);
+      alert("❌ Failed to load file");
+    }
+  };
+
   // ================= Subtypes =================
   const announcementSubtypes = ["School Event", "Exam", "Holiday", "General"];
   const urgentSubtypes = ["Parent Meeting", "Disaster", "Emergency"];
+  const leaveSubtypes = ["Sick Leave", "Parental Leave", "Medical Leave"];
 
   // ================= Auto-fill templates =================
   useEffect(() => {
@@ -127,85 +399,209 @@ export default function AssistantPrincipalDashboard() {
           );
           break;
       }
+    } else if (type === "leave") {
+      setTitle("");
+      // Don't reset message here to preserve any student-specific message
     }
   }, [type, subType]);
 
-  // ================= Handle Send =================
+  // ================= UPDATED: Handle Send with OneSignal Integration =================
   const handleSend = async () => {
-    if (!title || !message) {
-      alert("Please fill in both title and message fields.");
-      return;
-    }
-    setLoading(true);
-    setStatus("");
-
-    try {
-      // Fetch users
-      const { data: usersData, error: usersError } = await supabase
-        .from("users")
-        .select("id, role, email, full_name");
-      if (usersError) throw usersError;
-
-      let targetUsers = [];
-      if (sendTo === "parents") targetUsers = usersData.filter((u) => u.role === "parent");
-      else if (sendTo === "guards") targetUsers = usersData.filter((u) => u.role === "guard");
-      else if (sendTo === "both")
-        targetUsers = usersData.filter(
-          (u) => u.role === "parent" || u.role === "guard"
-        );
-
-      if (sendTo !== "guards" && gradeLevel !== "All") {
-        const { data: studentData, error: studentError } = await supabase
-          .from("student")
-          .select("users_id, grade_level")
-          .eq("grade_level", gradeLevel);
-        if (studentError) throw studentError;
-        const studentUserIds = studentData.map((s) => s.users_id);
-        targetUsers = targetUsers.filter((u) => studentUserIds.includes(u.id));
+    if (type === "leave") {
+      if (!subType || selectedLeaveParents.length === 0) {
+        alert("Please select a reason and at least one parent.");
+        return;
       }
+      if (!signature) {
+        alert("Please provide an e-signature.");
+        return;
+      }
+      setLoading(true);
+      setStatus("");
 
-      const notifications = targetUsers.map((user) => ({
-        user_id: user.id,
-        title,
-        message,
-        type,
-        is_read: false,
-        created_at: new Date(),
-      }));
-
-      // ✅ Insert notifications and send OneSignal push
-      if (notifications.length > 0) {
-        const { error: insertError } = await supabase
-          .from("notifications")
-          .insert(notifications);
-        if (insertError) throw insertError;
-
-        // 🔥 Send push notification to OneSignal
-        console.log("📡 Sending push notification to OneSignal...");
-        debugger; // ✅ Breakpoint to debug OneSignal push
-        try {
-          const response = await fetch("/api/send-push", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title, message }),
-          });
-          const result = await response.json();
-          console.log("✅ OneSignal Response:", result);
-        } catch (pushError) {
-          console.error("❌ OneSignal push failed:", pushError);
+      try {
+        // Create custom message based on selected student
+        let customMessage = message;
+        if (selectedStudent) {
+          customMessage = `A leave notice has been submitted for ${selectedStudent.first_name} ${selectedStudent.last_name} (${selectedStudent.grade_level}).`;
         }
 
-        setStatus("✅ Notifications sent successfully!");
-        setAnnouncementPage(0);
-        fetchAnnouncements();
-      } else {
-        setStatus("⚠️ No target users found for this selection.");
+        const notifications = selectedLeaveParents.map((parentId) => ({
+          user_id: parentId,
+          title: `Leave Notice: ${subType}`,
+          message: customMessage,
+          type: "leave",
+          is_read: false,
+          created_at: new Date(),
+          leave_files: leaveAttachmentName, // Store in leave_files column
+          metadata: {
+            reason: subType,
+            signature: signature,
+            student_name: selectedStudent ? `${selectedStudent.first_name} ${selectedStudent.last_name}` : null,
+            student_grade: selectedStudent ? selectedStudent.grade_level : null,
+            // attachment is now stored in leave_files column instead of metadata
+          },
+        }));
+
+        if (notifications.length > 0) {
+          const { error: insertError } = await supabase
+            .from("notifications")
+            .insert(notifications);
+          if (insertError) throw insertError;
+
+          // ✅ Send OneSignal push notifications for leave notices
+          console.log("📡 Sending push notifications for leave notices...");
+          try {
+            const response = await fetch("/api/send-notifications", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: `Leave Notice: ${subType}`,
+                message: customMessage,
+                type: "leave",
+                targetUserIds: selectedLeaveParents,
+              }),
+            });
+            const result = await response.json();
+            console.log("✅ OneSignal Response:", result);
+          } catch (pushError) {
+            console.error("❌ OneSignal push failed:", pushError);
+          }
+
+          setStatus("✅ Leave notification sent successfully!");
+          setSelectedLeaveParents([]);
+          clearSignature();
+          setLeaveAttachment(null);
+          setLeaveAttachmentName("");
+          setSelectedStudent(null);
+          setStudentSearchQuery("");
+          setMessage("A leave notice has been submitted."); // Reset to default message
+          setAnnouncementPage(0);
+          fetchAnnouncements();
+        }
+      } catch (err) {
+        console.error("❌ Leave notification error:", err.message || err);
+        setStatus("❌ Failed to send leave notification.");
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.error("❌ Notification send error:", err.message || err);
-      setStatus("❌ Failed to send notifications.");
-    } finally {
-      setLoading(false);
+    } else {
+      if (!title || !message) {
+        alert("Please fill in both title and message fields.");
+        return;
+      }
+      setLoading(true);
+      setStatus("");
+
+      try {
+        // Build the base query for target users
+        let targetUserIds = [];
+
+        if (sendTo === "parents" || sendTo === "both") {
+          let parentQuery = supabase
+            .from("users")
+            .select("id")
+            .eq("role", "parent");
+
+          // If grade level is specified, we need to filter parents by their students' grade level
+          if (gradeLevel !== "All" && sendTo !== "guards") {
+            // First get student user_ids for the specified grade level
+            const { data: studentData, error: studentError } = await supabase
+              .from("student")
+              .select("users_id")
+              .eq("grade_level", gradeLevel);
+
+            if (studentError) throw studentError;
+
+            const studentUserIds = studentData.map(s => s.users_id);
+            
+            // Now get parents that match these user_ids
+            if (studentUserIds.length > 0) {
+              parentQuery = parentQuery.in("id", studentUserIds);
+            } else {
+              // No students found for this grade level
+              parentQuery = null;
+            }
+          }
+
+          if (parentQuery) {
+            const { data: parentData, error: parentError } = await parentQuery;
+            if (parentError) throw parentError;
+            if (parentData) {
+              targetUserIds.push(...parentData.map(p => p.id));
+            }
+          }
+        }
+
+        if (sendTo === "guards" || sendTo === "both") {
+          const { data: guardData, error: guardError } = await supabase
+            .from("users")
+            .select("id")
+            .eq("role", "guard");
+
+          if (guardError) throw guardError;
+          if (guardData) {
+            targetUserIds.push(...guardData.map(g => g.id));
+          }
+        }
+
+        // Remove duplicates
+        const uniqueTargetUserIds = [...new Set(targetUserIds)];
+
+        console.log("Target user IDs:", uniqueTargetUserIds); // Debug log
+
+        if (uniqueTargetUserIds.length > 0) {
+          const notifications = uniqueTargetUserIds.map((userId) => ({
+            user_id: userId,
+            title,
+            message,
+            type,
+            is_read: false,
+            created_at: new Date(),
+          }));
+
+          const { error: insertError } = await supabase
+            .from("notifications")
+            .insert(notifications);
+
+          if (insertError) throw insertError;
+
+          // ✅ Send OneSignal push notifications (similar to RFID scan)
+          console.log("📡 Sending push notification to OneSignal...");
+          try {
+            const response = await fetch("/api/send-notifications", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title,
+                message,
+                type,
+                targetUserIds: uniqueTargetUserIds,
+              }),
+            });
+            const result = await response.json();
+            console.log("✅ OneSignal Response:", result);
+          } catch (pushError) {
+            console.error("❌ OneSignal push failed:", pushError);
+          }
+
+          setStatus(`✅ ${uniqueTargetUserIds.length} notification(s) sent successfully!`);
+          setAnnouncementPage(0);
+          fetchAnnouncements();
+          
+          // Clear form after successful send
+          setTitle("");
+          setMessage("");
+          setSubType("");
+        } else {
+          setStatus("⚠️ No target users found for this selection.");
+        }
+      } catch (err) {
+        console.error("❌ Notification send error:", err.message || err);
+        setStatus("❌ Failed to send notifications.");
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -216,7 +612,7 @@ export default function AssistantPrincipalDashboard() {
       const { data, count, error } = await supabase
         .from("notifications")
         .select("*", { count: "exact" })
-        .in("type", ["announcement", "urgent"])
+        .in("type", ["announcement", "urgent", "leave"])
         .order("created_at", { ascending: false })
         .range(
           announcementPage * ANNOUNCEMENT_PAGE_SIZE,
@@ -227,7 +623,12 @@ export default function AssistantPrincipalDashboard() {
       const mapped = data.map((item) => ({
         title: item.title || "No Title",
         message: item.message || "",
-        urgency: item.type === "urgent" ? "URGENT" : "ANNOUNCEMENT",
+        urgency: item.type === "urgent" ? "URGENT" : item.type === "leave" ? "LEAVE" : "ANNOUNCEMENT",
+        reason: item.metadata?.reason || null,
+        signature: item.metadata?.signature || null,
+        attachment: item.leave_files || null, // Now getting from leave_files column
+        student_name: item.metadata?.student_name || null,
+        student_grade: item.metadata?.student_grade || null,
         date: new Date(item.created_at).toLocaleString("en-US", {
           timeZone: "Asia/Manila",
           dateStyle: "short",
@@ -372,8 +773,10 @@ export default function AssistantPrincipalDashboard() {
             <h2 className="text-lg md:text-xl font-bold mb-5 flex items-center gap-3 text-[#800000]">
               {type === "announcement" ? (
                 <Megaphone color="#800000" />
-              ) : (
+              ) : type === "urgent" ? (
                 <AlertTriangle color="#800000" />
+              ) : (
+                <FileText color="#800000" />
               )}
               Compose Notification
             </h2>
@@ -384,11 +787,16 @@ export default function AssistantPrincipalDashboard() {
                 onChange={(e) => {
                   setType(e.target.value);
                   setSubType("");
+                  setSelectedLeaveParents([]);
+                  setSelectedStudent(null);
+                  setStudentSearchQuery("");
+                  setMessage(""); // Reset message when type changes
                 }}
                 className="w-full p-3 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition"
               >
                 <option value="announcement">Announcement</option>
                 <option value="urgent">Urgent</option>
+                <option value="leave">Leave</option>
               </select>
 
               <select
@@ -396,10 +804,14 @@ export default function AssistantPrincipalDashboard() {
                 onChange={(e) => setSubType(e.target.value)}
                 className="w-full p-3 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition"
               >
-                <option value="">Type of Notification</option>
+                <option value="">
+                  {type === "leave" ? "Reason" : "Type of Notification"}
+                </option>
                 {(type === "announcement"
                   ? announcementSubtypes
-                  : urgentSubtypes
+                  : type === "urgent"
+                  ? urgentSubtypes
+                  : leaveSubtypes
                 ).map((sub) => (
                   <option key={sub} value={sub}>
                     {sub}
@@ -408,53 +820,254 @@ export default function AssistantPrincipalDashboard() {
               </select>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <select
-                value={sendTo}
-                onChange={(e) => setSendTo(e.target.value)}
-                className="w-full p-3 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition"
-              >
-                <option value="parents">Parents</option>
-                <option value="guards">Guards</option>
-                <option value="both">Both</option>
-              </select>
-
-              {sendTo !== "guards" && (
+            {type !== "leave" && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <select
-                  value={gradeLevel}
-                  onChange={(e) => setGradeLevel(e.target.value)}
+                  value={sendTo}
+                  onChange={(e) => setSendTo(e.target.value)}
                   className="w-full p-3 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition"
                 >
-                  <option value="All">All</option>
-                  {grades.map((grade) => (
-                    <option key={grade} value={grade}>
-                      {grade}
-                    </option>
-                  ))}
+                  <option value="parents">Parents</option>
+                  <option value="guards">Guards</option>
+                  <option value="both">Both</option>
                 </select>
-              )}
-            </div>
 
-            <input
-              type="text"
-              placeholder="Title"
-              className="w-full p-3 mb-4 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
+                {sendTo !== "guards" && (
+                  <select
+                    value={gradeLevel}
+                    onChange={(e) => setGradeLevel(e.target.value)}
+                    className="w-full p-3 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition"
+                  >
+                    <option value="All">All</option>
+                    {grades.map((grade) => (
+                      <option key={grade} value={grade}>
+                        {grade}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
 
-            <textarea
-              placeholder="Message"
-              rows={4}
-              className="w-full p-3 mb-5 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-            />
+            {type === "leave" && (
+              <>
+                {/* Student Search - Now at the top of leave section */}
+                <div className="mb-4">
+                  <label className="block text-sm font-semibold mb-2 text-[#800000]">
+                    Search Student
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Search by student first name or last name..."
+                      className="w-full p-3 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition pr-10"
+                      value={studentSearchQuery}
+                      onChange={(e) => setStudentSearchQuery(e.target.value)}
+                    />
+                    <Search className="absolute right-3 top-3.5 h-4 w-4 text-gray-500" />
+                    
+                    {/* Student Search Results */}
+                    {searchedStudents.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-[#800000] rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        {searchedStudents.map((student) => (
+                          <div
+                            key={student.id}
+                            className="p-3 hover:bg-gray-100 cursor-pointer border-b last:border-0"
+                            onClick={() => handleStudentSelect(student)}
+                          >
+                            <div className="font-medium text-sm">
+                              {student.first_name} {student.last_name}
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              Grade: {student.grade_level} | Parent: {student.parent_name}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {studentSearchLoading && (
+                      <div className="absolute right-3 top-3.5">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#800000]"></div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {selectedStudent && (
+                    <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="text-sm font-medium text-green-800">
+                            Selected: {selectedStudent.first_name} {selectedStudent.last_name}
+                          </p>
+                          <p className="text-xs text-green-600">
+                            Grade {selectedStudent.grade_level} • Parent: {selectedStudent.parent_name}
+                          </p>
+                        </div>
+                        <button
+                          onClick={clearStudentSearch}
+                          className="text-red-600 hover:text-red-800 text-sm"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-semibold mb-2 text-[#800000]">
+                    Search & Select Parents
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Search by parent name or email..."
+                    className="w-full p-3 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition mb-2"
+                    value={leaveSearchQuery}
+                    onChange={(e) => setLeaveSearchQuery(e.target.value)}
+                  />
+                  <div className="border border-[#800000] rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
+                    {leaveParentsFiltered.length === 0 ? (
+                      <p className="text-sm text-gray-600">No parents found</p>
+                    ) : (
+                      leaveParentsFiltered.map((parent) => (
+                        <div key={parent.id} className="flex items-center mb-2">
+                          <input
+                            type="checkbox"
+                            id={`parent-${parent.id}`}
+                            checked={selectedLeaveParents.includes(parent.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedLeaveParents([
+                                  ...selectedLeaveParents,
+                                  parent.id,
+                                ]);
+                              } else {
+                                setSelectedLeaveParents(
+                                  selectedLeaveParents.filter(
+                                    (id) => id !== parent.id
+                                  )
+                                );
+                              }
+                            }}
+                            className="mr-2"
+                          />
+                          <label
+                            htmlFor={`parent-${parent.id}`}
+                            className="text-sm cursor-pointer"
+                          >
+                            {parent.first_name} {parent.last_name} ({parent.email})
+                          </label>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  {selectedLeaveParents.length > 0 && (
+                    <p className="text-sm text-green-600 mt-2">
+                      {selectedLeaveParents.length} parent(s) selected
+                    </p>
+                  )}
+                </div>
+
+                {/* Leave Message Display */}
+                <div className="mb-4">
+                  <label className="block text-sm font-semibold mb-2 text-[#800000]">
+                    Preview Message
+                  </label>
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm text-blue-800 font-medium">
+                      {message || "A leave notice has been submitted."}
+                    </p>
+                    {selectedStudent && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        This message includes {selectedStudent.first_name}'s name and will be sent to parents.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-semibold mb-2 text-[#800000]">
+                    Attachment
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      id="file-input"
+                    />
+                    <label
+                      htmlFor="file-input"
+                      className="flex items-center gap-2 px-4 py-2 bg-[#800000] text-white rounded-lg cursor-pointer hover:bg-[#660000] transition"
+                    >
+                      <Paperclip size={18} />
+                      Choose File
+                    </label>
+                    {leaveAttachmentName && (
+                      <span className="text-sm text-gray-700">
+                        {leaveAttachmentName}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-semibold mb-2 text-[#800000]">
+                    E-Signature (Draw Below)
+                  </label>
+                  <canvas
+                    ref={canvasRef}
+                    width={400}
+                    height={150}
+                    onMouseDown={handleCanvasMouseDown}
+                    onMouseMove={handleCanvasMouseMove}
+                    onMouseUp={handleCanvasMouseUp}
+                    onMouseLeave={handleCanvasMouseUp}
+                    className="border-2 border-[#800000] rounded-lg bg-white cursor-crosshair w-full"
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={clearSignature}
+                      className="flex-1 px-3 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition text-sm"
+                    >
+                      Clear Signature
+                    </button>
+                    <button
+                      onClick={initializeCanvas}
+                      className="flex-1 px-3 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition text-sm"
+                    >
+                      Reset Canvas
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {type !== "leave" && (
+              <>
+                <input
+                  type="text"
+                  placeholder="Title"
+                  className="w-full p-3 mb-4 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+
+                <textarea
+                  placeholder="Message"
+                  rows={4}
+                  className="w-full p-3 mb-5 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                />
+              </>
+            )}
 
             <button
               onClick={handleSend}
               disabled={loading}
-              className="bg-[#800000] text-white px-5 py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-[#660000] w-full font-semibold transition"
+              className="bg-[#800000] text-white px-5 py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-[#660000] w-full font-semibold transition disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               <Send size={18} />
               {loading ? "Sending..." : "Send Notification"}
@@ -466,7 +1079,7 @@ export default function AssistantPrincipalDashboard() {
           {/* Recent Announcements */}
           <div className="bg-[#F4E4E4] p-6 rounded-2xl shadow-lg border border-[#800000]">
             <h3 className="text-base md:text-lg font-semibold mb-4 text-[#800000]">
-              Recent Announcements
+              Recent Announcements & Leave Notices
             </h3>
             {announcementsLoading ? (
               <p className="text-gray-700 text-sm">Loading announcements...</p>
@@ -488,13 +1101,67 @@ export default function AssistantPrincipalDashboard() {
                           className={`text-xs font-semibold ${
                             item.urgency === "URGENT"
                               ? "text-red-600"
+                              : item.urgency === "LEAVE"
+                              ? "text-blue-600"
                               : "text-gray-800"
                           }`}
                         >
                           {item.urgency}
                         </span>
                       </div>
-                      <p className="text-xs mb-1">{item.message}</p>
+                      <p className="text-xs mb-2">{item.message}</p>
+                      
+                      {item.urgency === "LEAVE" && (
+                        <div className="bg-blue-50 p-3 rounded mb-2 border-l-2 border-blue-600">
+                          {/* Show student name if available */}
+                          {item.student_name && (
+                            <p className="text-xs text-blue-800 mb-2">
+                              <strong>Student:</strong> {item.student_name} (Grade {item.student_grade})
+                            </p>
+                          )}
+                          {item.reason && (
+                            <p className="text-xs text-blue-800 mb-2">
+                              <strong>Reason:</strong> {item.reason}
+                            </p>
+                          )}
+                          {item.attachment && (
+                            <div className="mb-2">
+                              <p className="text-xs text-blue-800 mb-1">
+                                <strong>Attachment:</strong> {item.attachment}
+                              </p>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleViewAttachment(item.attachment)}
+                                  className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition"
+                                >
+                                  <Eye size={14} />
+                                  View
+                                </button>
+                                <button
+                                  onClick={() => handleDownloadAttachment(item.attachment)}
+                                  className="flex items-center gap-1 px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 transition"
+                                >
+                                  <Download size={14} />
+                                  Download
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {item.signature && (
+                            <div>
+                              <p className="text-xs text-blue-800 mb-1">
+                                <strong>E-Signature:</strong>
+                              </p>
+                              <img
+                                src={item.signature}
+                                alt="Signature"
+                                className="h-12 border border-blue-300 rounded"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
                       <p className="text-[10px] text-gray-500">{item.date}</p>
                     </li>
                   ))}
@@ -623,6 +1290,61 @@ export default function AssistantPrincipalDashboard() {
             </>
           )}
         </div>
+
+        {/* Attachment Modal */}
+        {attachmentModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-96 overflow-auto">
+              <div className="flex justify-between items-center p-4 border-b border-[#800000]">
+                <h3 className="text-lg font-bold text-[#800000]">
+                  Document Preview
+                </h3>
+                <button
+                  onClick={() => {
+                    setAttachmentModal(false);
+                    setSelectedAttachment(null);
+                  }}
+                  className="p-1 hover:bg-gray-200 rounded transition"
+                >
+                  <X size={20} color="#800000" />
+                </button>
+              </div>
+              <div className="p-6">
+                {selectedAttachment && (
+                  <>
+                    {selectedAttachment.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                      <img
+                        src={selectedAttachment}
+                        alt="Attachment Preview"
+                        className="w-full rounded-lg border border-[#800000]"
+                      />
+                    ) : selectedAttachment.match(/\.(pdf)$/i) ? (
+                      <iframe
+                        src={selectedAttachment}
+                        className="w-full h-96 rounded-lg border border-[#800000]"
+                        title="PDF Preview"
+                      />
+                    ) : (
+                      <div className="text-center p-6 bg-gray-100 rounded-lg">
+                        <FileText size={48} color="#800000" className="mx-auto mb-2" />
+                        <p className="text-gray-700 mb-4">
+                          Preview not available for this file type
+                        </p>
+                        <button
+                          onClick={() => handleDownloadAttachment(selectedAttachment.split('/').pop())}
+                          className="flex items-center justify-center gap-2 px-4 py-2 bg-[#800000] text-white rounded-lg hover:bg-[#660000] transition mx-auto"
+                        >
+                          <Download size={16} />
+                          Download File
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

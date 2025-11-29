@@ -8,10 +8,12 @@ import NotificationToast from "../components-guards/NotificationToast";
 import DynamicStatCards from "../components-guards/StatCards";
 import ActivityLog from "../components-guards/ActivityLog";
 import SchoolEvents from "../components-guards/SchoolEvents";
+import LeaveNotifications from "../components-guards/LeaveNotifcations";
 
 export default function GuardDashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeView, setActiveView] = useState("dashboard"); // "dashboard" or "leave"
   const router = useRouter();
 
   useEffect(() => {
@@ -22,7 +24,7 @@ export default function GuardDashboard() {
         } = await supabase.auth.getSession();
 
         if (!session) {
-          router.replace("/"); // use replace instead of push to avoid back navigation
+          router.replace("/");
           return;
         }
 
@@ -33,14 +35,14 @@ export default function GuardDashboard() {
           .maybeSingle();
 
         if (!data || data.role !== "guard") {
-          router.replace("/"); // replace to stay on home
+          router.replace("/");
           return;
         }
 
         setUser(data);
       } catch (error) {
         console.error("Error fetching user:", error);
-        router.replace("/"); // fallback
+        router.replace("/");
       } finally {
         setLoading(false);
       }
@@ -55,16 +57,46 @@ export default function GuardDashboard() {
   return (
     <div className="min-h-screen bg-white text-black">
       <NotificationToast />
-      <Header />
+      <Header currentView={activeView} setSidebarOpen={() => {}} />
 
       <main className="p-6 pt-4">
-        <DynamicStatCards />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
-          <ActivityLog user={user} /> {/* pass user as prop */}
-          <div className="space-y-6">
-            <SchoolEvents user={user} /> {/* pass user as prop */}
-          </div>
+        {/* View Toggle Buttons */}
+        <div className="flex gap-4 mb-6">
+          <button
+            onClick={() => setActiveView("dashboard")}
+            className={`px-6 py-2 rounded-lg font-medium transition ${
+              activeView === "dashboard"
+                ? "bg-[#800000] text-white"
+                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }`}
+          >
+            Dashboard
+          </button>
+          <button
+            onClick={() => setActiveView("leave")}
+            className={`px-6 py-2 rounded-lg font-medium transition ${
+              activeView === "leave"
+                ? "bg-[#800000] text-white"
+                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }`}
+          >
+            Leave Notifications
+          </button>
         </div>
+
+        {activeView === "dashboard" ? (
+          <>
+            <DynamicStatCards />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
+              <ActivityLog user={user} />
+              <div className="space-y-6">
+                <SchoolEvents user={user} />
+              </div>
+            </div>
+          </>
+        ) : (
+          <LeaveNotifications />
+        )}
       </main>
     </div>
   );

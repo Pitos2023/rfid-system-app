@@ -20,7 +20,7 @@ self.addEventListener('notificationclick', function(event) {
   console.log('🔔 Notification clicked in SW:', event);
   event.notification.close();
   
-  const targetUrl = 'https://mastoparietal-besottingly-dann.ngrok-free.dev/parents?view=dashboard';
+  const targetUrl = 'https://sarahi-recriminatory-liane.ngrok-free.dev/parents?view=dashboard';
   
   event.waitUntil(
     clients.matchAll({type: 'window'}).then(function(clientList) {

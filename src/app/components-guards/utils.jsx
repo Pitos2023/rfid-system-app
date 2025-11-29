@@ -118,3 +118,57 @@ export async function fetchSchoolEvents(userRole = "guard", page = 1, limit = 10
     return { events: [], totalPages: 1 };
   }
 }
+
+/**
+ * ✅ Fetch Leave Notifications for Guards
+ */
+export async function fetchLeaveNotifications(page = 1, limit = 10) {
+  try {
+    const offset = (page - 1) * limit;
+
+    // ✅ Fetch only "leave" type notifications with user data
+    const { data, error, count } = await supabase
+      .from("notifications")
+      .select(`
+        *,
+        user:user_id (
+          first_name,
+          last_name,
+          email
+        )
+      `, { count: "exact" })
+      .eq("type", "leave")
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+
+    const formatted = (data || []).map((notification) => ({
+      id: notification.id,
+      title: notification.title,
+      message: notification.message,
+      reason: notification.metadata?.reason || "Not specified",
+      signature: notification.metadata?.signature || null,
+      attachment: notification.leave_files || null,
+      parentName: notification.user 
+        ? `${notification.user.first_name} ${notification.user.last_name}`
+        : "Unknown Parent",
+      parentEmail: notification.user?.email || "No email",
+      date: new Date(notification.created_at).toLocaleString("en-US", {
+        timeZone: "Asia/Manila",
+        dateStyle: "short",
+        timeStyle: "short",
+      }),
+      created_at: notification.created_at,
+    }));
+
+    return {
+      leaveNotifications: formatted,
+      totalPages: Math.ceil((count || 0) / limit),
+      totalCount: count || 0,
+    };
+  } catch (err) {
+    console.error("❌ Error fetching leave notifications:", err.message || err);
+    return { leaveNotifications: [], totalPages: 1, totalCount: 0 };
+  }
+}
