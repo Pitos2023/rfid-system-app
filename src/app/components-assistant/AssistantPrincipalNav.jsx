@@ -75,6 +75,31 @@ export default function AssistantPrincipalDashboard() {
   const [attachmentModal, setAttachmentModal] = useState(false);
   const [selectedAttachment, setSelectedAttachment] = useState(null);
 
+  // ✅ Function to get current Manila time
+  const getCurrentManilaTime = () => {
+    const now = new Date();
+    const manilaTime = new Date(now.getTime() + 8 * 60 * 60 * 1000); // UTC+8
+    return manilaTime.toISOString();
+  };
+
+  // ✅ Function to format date in Manila time for display
+  const formatManilaTime = (dateString) => {
+    if (!dateString) return "Unknown time";
+    
+    const date = new Date(dateString);
+    const manilaTime = new Date(date.getTime() + 8 * 60 * 60 * 1000); // Convert to Manila time
+    
+    return manilaTime.toLocaleString('en-US', { 
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true 
+    });
+  };
+
   // ================= Fetch grades =================
   useEffect(() => {
     const fetchGrades = async () => {
@@ -420,10 +445,13 @@ export default function AssistantPrincipalDashboard() {
       setStatus("");
 
       try {
+        // ✅ FIXED: Use Manila time for created_at
+        const manilaTime = getCurrentManilaTime();
+
         // Create custom message based on selected student
         let customMessage = message;
         if (selectedStudent) {
-          customMessage = `A leave notice has been submitted for ${selectedStudent.first_name} ${selectedStudent.last_name} (${selectedStudent.grade_level}).`;
+          customMessage = `A leave notice has been submitted for ${selectedStudent.first_name} ${student.last_name} (${selectedStudent.grade_level}).`;
         }
 
         const notifications = selectedLeaveParents.map((parentId) => ({
@@ -432,7 +460,7 @@ export default function AssistantPrincipalDashboard() {
           message: customMessage,
           type: "leave",
           is_read: false,
-          created_at: new Date(),
+          created_at: manilaTime, // ✅ FIXED: Use Manila time
           leave_files: leaveAttachmentName, // Store in leave_files column
           metadata: {
             reason: subType,
@@ -494,6 +522,9 @@ export default function AssistantPrincipalDashboard() {
       setStatus("");
 
       try {
+        // ✅ FIXED: Use Manila time for created_at
+        const manilaTime = getCurrentManilaTime();
+
         // Build the base query for target users
         let targetUserIds = [];
 
@@ -557,7 +588,7 @@ export default function AssistantPrincipalDashboard() {
             message,
             type,
             is_read: false,
-            created_at: new Date(),
+            created_at: manilaTime, // ✅ FIXED: Use Manila time
           }));
 
           const { error: insertError } = await supabase
@@ -629,11 +660,7 @@ export default function AssistantPrincipalDashboard() {
         attachment: item.leave_files || null, // Now getting from leave_files column
         student_name: item.metadata?.student_name || null,
         student_grade: item.metadata?.student_grade || null,
-        date: new Date(item.created_at).toLocaleString("en-US", {
-          timeZone: "Asia/Manila",
-          dateStyle: "short",
-          timeStyle: "short",
-        }),
+        date: formatManilaTime(item.created_at), // ✅ FIXED: Use Manila time formatter
       }));
 
       setRecentAnnouncements(mapped);
@@ -679,11 +706,7 @@ export default function AssistantPrincipalDashboard() {
           ? `${item.student.first_name} ${item.student.last_name}`
           : "Unknown Student",
         consent: item.consent ? "✅ Yes" : "❌ No",
-        date: new Date(item.time_stamp).toLocaleString("en-PH", {
-          hour12: true,
-          dateStyle: "short",
-          timeStyle: "short",
-        }),
+        date: formatManilaTime(item.time_stamp), // ✅ FIXED: Use Manila time formatter
       }));
 
       setHistoryLogs(mappedLogs);

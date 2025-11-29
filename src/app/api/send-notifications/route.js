@@ -96,13 +96,17 @@ export async function POST(req) {
       }
     }
 
+    // ✅ FIXED: Use Manila time for timestamp
+    const now = new Date();
+    const manilaTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+
     // Send OneSignal notification if we have player IDs
     let oneSignalResult = null;
     if (playerIds.length > 0) {
       oneSignalResult = await sendOneSignalNotification(playerIds, title, message, {
         type: type || "announcement",
         source: "assistant_principal",
-        timestamp: new Date().toISOString(),
+        timestamp: manilaTime.toISOString(), // ✅ FIXED: Use Manila time
       });
     } else {
       console.log("ℹ️ No player IDs found - notification will only be stored in database");
