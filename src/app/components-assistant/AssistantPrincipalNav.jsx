@@ -16,6 +16,60 @@ import {
   Search,
 } from "lucide-react";
 
+// ================= Pagination Component =================
+const Pagination = ({ currentPage, totalPages, onPageChange }) => {
+  const getVisiblePages = () => {
+    const visiblePages = 5;
+    let startPage = Math.max(0, currentPage - Math.floor(visiblePages / 2));
+    let endPage = Math.min(totalPages - 1, startPage + visiblePages - 1);
+    
+    // Adjust start page if we're near the end
+    if (endPage - startPage + 1 < visiblePages) {
+      startPage = Math.max(0, endPage - visiblePages + 1);
+    }
+    
+    const pages = [];
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+    return pages;
+  };
+
+  return (
+    <div className="flex justify-center items-center space-x-2 flex-wrap gap-1">
+      <button
+        onClick={() => onPageChange(Math.max(0, currentPage - 1))}
+        disabled={currentPage === 0}
+        className="px-3 py-1 bg-[#800000] text-white rounded-md hover:bg-[#660000] disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+      >
+        Prev
+      </button>
+
+      {getVisiblePages().map((page) => (
+        <button
+          key={page}
+          onClick={() => onPageChange(page)}
+          className={`px-3 py-1 rounded-md text-sm ${
+            currentPage === page
+              ? "bg-[#660000] text-white"
+              : "bg-gray-300 text-black hover:bg-gray-400"
+          }`}
+        >
+          {page + 1}
+        </button>
+      ))}
+
+      <button
+        onClick={() => onPageChange(Math.min(totalPages - 1, currentPage + 1))}
+        disabled={currentPage >= totalPages - 1}
+        className="px-3 py-1 bg-[#800000] text-white rounded-md hover:bg-[#660000] disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+      >
+        Next
+      </button>
+    </div>
+  );
+};
+
 export default function AssistantPrincipalDashboard() {
   const role =
     (typeof window !== "undefined" && sessionStorage.getItem("role")) ||
@@ -451,7 +505,7 @@ export default function AssistantPrincipalDashboard() {
         // Create custom message based on selected student
         let customMessage = message;
         if (selectedStudent) {
-          customMessage = `A leave notice has been submitted for ${selectedStudent.first_name} ${student.last_name} (${selectedStudent.grade_level}).`;
+          customMessage = `A leave notice has been submitted for ${selectedStudent.first_name} ${selectedStudent.last_name} (${selectedStudent.grade_level}).`;
         }
 
         const notifications = selectedLeaveParents.map((parentId) => ({
@@ -677,10 +731,6 @@ export default function AssistantPrincipalDashboard() {
     fetchAnnouncements();
   }, [announcementPage]);
 
-  const handleAnnouncementPageClick = (pageNum) => {
-    setAnnouncementPage(pageNum);
-  };
-
   // ================= Fetch History Logs =================
   const fetchHistoryLogs = async () => {
     try {
@@ -721,10 +771,6 @@ export default function AssistantPrincipalDashboard() {
   useEffect(() => {
     fetchHistoryLogs();
   }, [historyPage]);
-
-  const handleHistoryPageClick = (pageNum) => {
-    setHistoryPage(pageNum);
-  };
 
   // ================= Fetch Stats =================
   const fetchStats = async () => {
@@ -1191,46 +1237,11 @@ export default function AssistantPrincipalDashboard() {
                 </ul>
 
                 {/* Pagination */}
-                <div className="flex justify-center items-center mt-5 space-x-2 flex-wrap gap-1">
-                  <button
-                    onClick={() =>
-                      setAnnouncementPage(Math.max(0, announcementPage - 1))
-                    }
-                    disabled={announcementPage === 0}
-                    className="px-3 py-1 bg-[#800000] text-white rounded-md hover:bg-[#660000] disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
-                  >
-                    Prev
-                  </button>
-
-                  {[...Array(totalAnnouncementPages)].map((_, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleAnnouncementPageClick(idx)}
-                      className={`px-3 py-1 rounded-md text-sm ${
-                        announcementPage === idx
-                          ? "bg-[#660000] text-white"
-                          : "bg-gray-300 text-black hover:bg-gray-400"
-                      }`}
-                    >
-                      {idx + 1}
-                    </button>
-                  ))}
-
-                  <button
-                    onClick={() =>
-                      setAnnouncementPage(
-                        Math.min(
-                          totalAnnouncementPages - 1,
-                          announcementPage + 1
-                        )
-                      )
-                    }
-                    disabled={announcementPage >= totalAnnouncementPages - 1}
-                    className="px-3 py-1 bg-[#800000] text-white rounded-md hover:bg-[#660000] disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
-                  >
-                    Next
-                  </button>
-                </div>
+                <Pagination
+                  currentPage={announcementPage}
+                  totalPages={totalAnnouncementPages}
+                  onPageChange={setAnnouncementPage}
+                />
               </>
             )}
           </div>
@@ -1273,43 +1284,11 @@ export default function AssistantPrincipalDashboard() {
               </ul>
 
               {/* Pagination */}
-              <div className="flex justify-center items-center mt-5 space-x-2 flex-wrap gap-1">
-                <button
-                  onClick={() =>
-                    setHistoryPage(Math.max(0, historyPage - 1))
-                  }
-                  disabled={historyPage === 0}
-                  className="px-3 py-1 bg-[#800000] text-white rounded-md hover:bg-[#660000] disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
-                >
-                  Prev
-                </button>
-
-                {[...Array(totalHistoryPages)].map((_, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleHistoryPageClick(idx)}
-                    className={`px-3 py-1 rounded-md text-sm ${
-                      historyPage === idx
-                        ? "bg-[#660000] text-white"
-                        : "bg-gray-300 text-black hover:bg-gray-400"
-                    }`}
-                  >
-                    {idx + 1}
-                  </button>
-                ))}
-
-                <button
-                  onClick={() =>
-                    setHistoryPage(
-                      Math.min(totalHistoryPages - 1, historyPage + 1)
-                    )
-                  }
-                  disabled={historyPage >= totalHistoryPages - 1}
-                  className="px-3 py-1 bg-[#800000] text-white rounded-md hover:bg-[#660000] disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
-                >
-                  Next
-                </button>
-              </div>
+              <Pagination
+                currentPage={historyPage}
+                totalPages={totalHistoryPages}
+                onPageChange={setHistoryPage}
+              />
             </>
           )}
         </div>

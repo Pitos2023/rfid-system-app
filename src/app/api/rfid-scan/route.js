@@ -1,5 +1,5 @@
 // ✅ FILE: src/app/api/rfid-scan/route.js
-// ✅ PURPOSE: Handles RFID scans and sends notifications for time-in/out events.
+// ✅ PURPOSE: Handles RFID scans and sends notifications (push & SMS) for time-in/out events.
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -8,11 +8,15 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ✅ Updated OneSignal Environment Variables
+// ✅ OneSignal Environment Variables
 const ONESIGNAL_APP_ID = process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID;
 const ONESIGNAL_REST_KEY = process.env.ONE_SIGNAL_REST_KEY;
 
-// ✅ OneSignal Notification Function (updated)
+// ✅ Vonage API Credentials
+const VONAGE_API_KEY = process.env.VONAGE_API_KEY;
+const VONAGE_API_SECRET = process.env.VONAGE_API_SECRET;
+
+// ✅ OneSignal Notification Function
 async function sendOneSignalNotification(playerId, title, body, data = {}) {
   if (!playerId) {
     console.warn("⚠️ No OneSignal Player ID provided — skipping notification.");
@@ -21,16 +25,13 @@ async function sendOneSignalNotification(playerId, title, body, data = {}) {
 
   console.log("📤 Sending OneSignal notification...");
   console.log("   ▶️ Player ID:", playerId);
-  console.log("   ▶️ Title:", title);
-  console.log("   ▶️ Body:", body);
-  console.log("   ▶️ Extra Data:", data);
 
   try {
     const response = await fetch("https://onesignal.com/api/v1/notifications", {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        Authorization: `Basic ${ONESIGNAL_REST_KEY}`, // ✅ REST API Key
+        Authorization: `Basic ${ONESIGNAL_REST_KEY}`,
       },
       body: JSON.stringify({
         app_id: ONESIGNAL_APP_ID,
@@ -49,38 +50,166 @@ async function sendOneSignalNotification(playerId, title, body, data = {}) {
 
     if (response.ok) {
       console.log("✅ OneSignal notification successfully sent!");
-      console.log("   ▶️ Notification ID:", result.id);
     } else {
       console.error("❌ OneSignal error response:", result.errors || result);
-      console.error("Raw response:", result);
     }
   } catch (err) {
     console.error("❌ OneSignal fetch error:", err);
   }
 }
 
+// ✅ Function to format phone number for Vonage (E.164 format)
+function formatPhoneNumberForVonage(phoneNumber) {
+  if (!phoneNumber) return null;
+  
+  // Remove all non-digit characters
+  let cleaned = phoneNumber.replace(/\D/g, '');
+  
+  // Handle different Philippine phone number formats
+  if (cleaned.length === 10 && cleaned.startsWith('9')) {
+    // 9XXXXXXXXX format -> +639XXXXXXXXX
+    return '+63' + cleaned;
+  } else if (cleaned.length === 11 && cleaned.startsWith('09')) {
+    // 09XXXXXXXXX format -> +639XXXXXXXXX
+    return '+63' + cleaned.substring(1);
+  } else if (cleaned.length === 12 && cleaned.startsWith('639')) {
+    // 639XXXXXXXXX format -> +639XXXXXXXXX
+    return '+' + cleaned;
+  } else if (cleaned.startsWith('+')) {
+    // Already in E.164 format
+    return phoneNumber;
+  }
+  
+  console.error("❌ Unrecognized phone number format:", phoneNumber);
+  return null;
+}
+
+// ✅ Vonage SMS Notification Function using REST API directly
+async function sendVonageSMS(phoneNumber, message) {
+  if (!phoneNumber) {
+    console.warn("⚠️ No phone number provided — skipping SMS.");
+    return { success: false, error: "No phone number" };
+  }
+
+  console.log("📱 Sending Vonage SMS...");
+  console.log("   ▶️ Original phone number:", phoneNumber);
+  
+  // Format the phone number
+  const formattedNumber = formatPhoneNumberForVonage(phoneNumber);
+  
+  if (!formattedNumber) {
+    console.error("❌ Failed to format phone number:", phoneNumber);
+    return { success: false, error: "Invalid phone number format" };
+  }
+
+  console.log("   ▶️ Formatted for Vonage:", formattedNumber);
+  console.log("   ▶️ Message:", message);
+
+  try {
+    // Use Vonage REST API directly (more reliable than SDK)
+    const params = new URLSearchParams();
+    params.append('api_key', VONAGE_API_KEY);
+    params.append('api_secret', VONAGE_API_SECRET);
+    params.append('to', formattedNumber);
+    params.append('from', 'Vonage'); // Try using 'Vonage' as sender ID
+    params.append('text', message);
+    params.append('type', 'unicode');
+
+    const response = await fetch('https://rest.nexmo.com/sms/json', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
+      body: params.toString()
+    });
+
+    const result = await response.json();
+    console.log("📡 Vonage API Response:", JSON.stringify(result, null, 2));
+
+    if (result.messages && result.messages.length > 0) {
+      const messageStatus = result.messages[0];
+      
+      if (messageStatus.status === '0') {
+        console.log("✅ SMS sent successfully!");
+        console.log("   ▶️ Message ID:", messageStatus['message-id']);
+        console.log("   ▶️ Remaining balance:", messageStatus['remaining-balance']);
+        return { 
+          success: true, 
+          messageId: messageStatus['message-id'],
+          remainingBalance: messageStatus['remaining-balance'],
+          cost: messageStatus['message-price']
+        };
+      } else {
+        console.error("❌ SMS failed:");
+        console.error("   ▶️ Status code:", messageStatus.status);
+        console.error("   ▶️ Error text:", messageStatus['error-text']);
+        return { 
+          success: false, 
+          error: messageStatus['error-text'] || `Status: ${messageStatus.status}`,
+          status: messageStatus.status
+        };
+      }
+    } else {
+      console.error("❌ No messages in response:", result);
+      return { 
+        success: false, 
+        error: "No messages in response" 
+      };
+    }
+  } catch (err) {
+    console.error("❌ Vonage SMS error:", err.message);
+    console.error("❌ Error stack:", err.stack);
+    
+    return { 
+      success: false, 
+      error: err.message || "Unknown Vonage error"
+    };
+  }
+}
+
 // ✅ Function to check if current time is within consent hours (12-1 PM Manila Time)
 function isWithinConsentHours() {
   const now = new Date();
-  const manilaTime = new Date(now.getTime() + 8 * 60 * 60 * 1000); // Convert to Manila time
-  const manilaHour = manilaTime.getUTCHours(); // Since we added 8 hours, use getUTCHours()
+  const manilaTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const manilaHour = manilaTime.getUTCHours();
   
   console.log(`🕒 Current Manila Time: ${manilaTime.toISOString()}`);
   console.log(`🕒 Current Manila Hour: ${manilaHour}`);
   
-  // Check if current time is between 12:00 PM and 12:59 PM (12-13 in 24-hour format)
-  return manilaHour === 12; // 12 PM to 12:59 PM
+  return manilaHour === 12;
 }
 
-// ✅ Function to format Manila time for display (without double timezone conversion)
+// ✅ Function to format Manila time for display
 function formatManilaTimeForDisplay(manilaISODate) {
   const date = new Date(manilaISODate);
-  // Since manilaISODate is already in Manila time, just format it normally
   return date.toLocaleTimeString('en-US', { 
     hour: '2-digit', 
     minute: '2-digit',
     hour12: true 
   });
+}
+
+// ✅ Create sms_logs table if it doesn't exist
+async function ensureSmsLogsTable() {
+  try {
+    // Check if table exists by trying to select from it
+    const { error } = await supabase
+      .from('sms_logs')
+      .select('id')
+      .limit(1);
+    
+    if (error && error.code === '42P01') {
+      console.log("⚠️ sms_logs table doesn't exist, creating...");
+      // Table doesn't exist, you might want to create it
+      // For now, just log and continue
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("❌ Error checking sms_logs table:", err.message);
+    return false;
+  }
 }
 
 export async function POST(req) {
@@ -160,15 +289,13 @@ export async function POST(req) {
     if (student?.users_id) {
       const { data: parent } = await supabase
         .from("users")
-        .select("id, onesignal_player_id")
+        .select("id, onesignal_player_id, contact_number")
         .eq("id", student.users_id)
         .eq("role", "parent")
         .single();
 
       if (parent) {
         let title, body, type = "info";
-
-        // ✅ FIX: Use the format function without timezone specification
         const displayTime = formatManilaTimeForDisplay(manilaISO);
 
         if (action === "time-in") {
@@ -189,7 +316,7 @@ export async function POST(req) {
             message: body,
             type,
             is_read: false,
-            created_at: manilaISO, // Store with Manila time
+            created_at: manilaISO,
             status: "pending",
             log_id: newLog.id,
           },
@@ -204,15 +331,68 @@ export async function POST(req) {
           });
         }
 
-        // ✅ ONLY create consent request on time-out AND during 12-1 PM
+        // ✅ Send SMS notification to contact_number
+        if (parent.contact_number) {
+          console.log("📞 Parent contact number from database:", parent.contact_number);
+          
+          const smsMessage = `${title}\n${body}`;
+          const smsResult = await sendVonageSMS(parent.contact_number, smsMessage);
+          
+          // Check if table exists before logging
+          const tableExists = await ensureSmsLogsTable();
+          
+          if (tableExists) {
+            if (smsResult.success) {
+              await supabase.from("sms_logs").insert([
+                {
+                  user_id: parent.id,
+                  student_id: student.id,
+                  log_id: newLog.id,
+                  phone_number: parent.contact_number,
+                  formatted_number: formatPhoneNumberForVonage(parent.contact_number),
+                  message: smsMessage,
+                  status: 'sent',
+                  message_id: smsResult.messageId,
+                  cost: smsResult.cost,
+                  remaining_balance: smsResult.remainingBalance,
+                  sent_at: manilaISO,
+                },
+              ]);
+              console.log("✅ SMS logged to database");
+            } else {
+              await supabase.from("sms_logs").insert([
+                {
+                  user_id: parent.id,
+                  student_id: student.id,
+                  log_id: newLog.id,
+                  phone_number: parent.contact_number,
+                  formatted_number: formatPhoneNumberForVonage(parent.contact_number),
+                  message: smsMessage,
+                  status: 'failed',
+                  error: smsResult.error,
+                  error_status: smsResult.status,
+                  sent_at: manilaISO,
+                },
+              ]);
+              console.error("❌ SMS failed and logged to database");
+            }
+          } else {
+            console.log("⚠️ sms_logs table doesn't exist, skipping database logging");
+          }
+        } else {
+          console.log("⚠️ No contact number for parent, skipping SMS");
+        }
+
+        // ✅ Create consent request on time-out AND during 12-1 PM
         if (action === "time-out") {
           const isConsentTime = isWithinConsentHours();
           console.log(`⏰ Consent request allowed: ${isConsentTime}`);
           
           if (isConsentTime) {
             const consentTitle = `Consent Request: ${student.first_name} ${student.last_name}`;
-            const consentMessage = `Do you allow pick-up for ${student.first_name}?`;
+            const consentMessage = `Do you allow pick-up for ${student.first_name}? Reply YES or NO.`;
 
+            // Store consent notification
             await supabase.from("notifications").insert([
               {
                 user_id: parent.id,
@@ -220,11 +400,35 @@ export async function POST(req) {
                 message: consentMessage,
                 type: "consent_request",
                 is_read: false,
-                created_at: manilaISO, // Store with Manila time
+                created_at: manilaISO,
                 status: "pending",
                 log_id: newLog.id,
               },
             ]);
+
+            // Send consent SMS if phone exists
+            if (parent.contact_number) {
+              const consentSMS = `${consentTitle}\n${consentMessage}`;
+              const consentSmsResult = await sendVonageSMS(parent.contact_number, consentSMS);
+              
+              // Log consent SMS if table exists
+              const tableExists = await ensureSmsLogsTable();
+              if (tableExists) {
+                await supabase.from("sms_logs").insert([
+                  {
+                    user_id: parent.id,
+                    student_id: student.id,
+                    log_id: newLog.id,
+                    phone_number: parent.contact_number,
+                    formatted_number: formatPhoneNumberForVonage(parent.contact_number),
+                    message: consentSMS,
+                    status: consentSmsResult.success ? 'sent' : 'failed',
+                    type: 'consent_request',
+                    sent_at: manilaISO,
+                  },
+                ]);
+              }
+            }
 
             console.log("✅ Consent request created during allowed hours");
           } else {
@@ -237,11 +441,20 @@ export async function POST(req) {
     console.log(`✅ RFID scan processed successfully for ${cleanCard} (${action})`);
 
     return new Response(
-      JSON.stringify({ success: true, action, log: newLog }),
+      JSON.stringify({ 
+        success: true, 
+        action, 
+        log: newLog,
+        student: student ? {
+          name: `${student.first_name} ${student.last_name}`,
+          parent_id: student.users_id
+        } : null
+      }),
       { status: 200 }
     );
   } catch (err) {
     console.error("❌ RFID error:", err);
+    console.error("❌ Error stack:", err.stack);
     return new Response(
       JSON.stringify({ success: false, error: err.message }),
       { status: 500 }
