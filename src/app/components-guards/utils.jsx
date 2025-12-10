@@ -8,88 +8,40 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-// ✅ Dashboard stats (maroon theme)
-export const stats = [
-  { title: "Students Present", value: 247, icon: "👥", color: "bg-[#800000]", note: "Currently In School" },
-  { title: "Total Activity", value: 331, icon: "📊", color: "bg-[#9c1c1c]", note: "↗️ +15 in last hour" },
-  { title: "Sick Leave", value: 8, icon: "🏥", color: "bg-[#b22222]", note: "Absent Today" },
-];
-
-// ✅ Helper to get start/end of day
-const startOfDay = (date) => {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-
-const endOfDay = (date) => {
-  const d = new Date(date);
-  d.setHours(23, 59, 59, 999);
-  return d;
-};
+// ... (keep all your existing stats and filter functions) ...
 
 /**
- * ✅ Filter entries by "today"
+ * ✅ Dynamic School Events Fetcher for Guards
+ * Fetch notifications for users with "guard" role
  */
-export function filterToday(data) {
-  const now = new Date();
-  const todayStart = startOfDay(now);
-  const todayEnd = endOfDay(now);
-
-  return data.filter((item) => {
-    const itemDate = new Date(item.date);
-    return itemDate >= todayStart && itemDate <= todayEnd;
-  });
-}
-
-/**
- * ✅ Filter entries by "this week"
- */
-export function filterThisWeek(data) {
-  const now = new Date();
-  const start = new Date(now);
-  start.setDate(now.getDate() - now.getDay()); // Sunday
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6); // Saturday
-  end.setHours(23, 59, 59, 999);
-
-  return data.filter((item) => {
-    const itemDate = new Date(item.date);
-    return itemDate >= start && itemDate <= end;
-  });
-}
-
-/**
- * ✅ Filter entries by "this month"
- */
-export function filterThisMonth(data) {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-
-  return data.filter((item) => {
-    const itemDate = new Date(item.date);
-    return itemDate >= start && itemDate <= end;
-  });
-}
-
-/**
- * ✅ Dynamic School Events Fetcher
- * Fetch notifications created by NotificationComposer.jsx
- * - Shows only type = "announcement" or "urgent"
- * - Does NOT fetch logs at all
- */
-export async function fetchSchoolEvents(userRole = "guard", page = 1, limit = 10) {
+export async function fetchSchoolEvents(userRole = "guard", page = 1, limit = 5) {
   try {
     const offset = (page - 1) * limit;
 
-    // ✅ Fetch only "announcement" or "urgent" directly from Supabase
+    // ✅ First, get all user IDs with role = "guard"
+    const { data: guardUsers, error: usersError } = await supabase
+      .from("users")
+      .select("id")
+      .eq("role", "guard");
+
+    if (usersError) throw usersError;
+
+    const guardUserIds = guardUsers.map(user => user.id);
+
+    // ✅ If no guard users found, return empty
+    if (guardUserIds.length === 0) {
+      return {
+        events: [],
+        totalPages: 1,
+      };
+    }
+
+    // ✅ Fetch notifications only for guard users
     const { data, error, count } = await supabase
       .from("notifications")
       .select("id, title, message, created_at, type", { count: "exact" })
-      .in("type", ["announcement", "urgent"]) // ✅ Only include valid types
+      .in("type", ["announcement", "urgent"])
+      .in("user_id", guardUserIds) // ✅ Only notifications for guard users
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -122,7 +74,7 @@ export async function fetchSchoolEvents(userRole = "guard", page = 1, limit = 10
 /**
  * ✅ Fetch Leave Notifications for Guards
  */
-export async function fetchLeaveNotifications(page = 1, limit = 10) {
+export async function fetchLeaveNotifications(page = 1, limit = 5) {
   try {
     const offset = (page - 1) * limit;
 

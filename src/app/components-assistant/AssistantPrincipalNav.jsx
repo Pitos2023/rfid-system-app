@@ -428,7 +428,7 @@ export default function AssistantPrincipalDashboard() {
 
   // ================= Subtypes =================
   const announcementSubtypes = ["School Event", "Exam", "Holiday", "General"];
-  const urgentSubtypes = ["Parent Meeting", "Disaster", "Emergency"];
+  const urgentSubtypes = ["Disaster", "Emergency"];
   const leaveSubtypes = ["Sick Leave", "Parental Leave", "Medical Leave"];
 
   // ================= Auto-fill templates =================
@@ -459,28 +459,22 @@ export default function AssistantPrincipalDashboard() {
       }
     } else if (type === "urgent") {
       switch (subType) {
-        case "Parent Meeting":
-          setTitle("Urgent Parent Meeting");
-          setMessage(
-            "An important parent meeting will be held soon. Attendance is required."
-          );
-          break;
         case "Disaster":
           setTitle("Emergency Alert: Disaster");
           setMessage(
-            "Please stay safe. School operations are temporarily suspended due to current conditions."
+            "There is an ongoing disaster situation. Please ensure student safety and follow evacuation procedures immediately."
           );
           break;
         case "Emergency":
-          setTitle("Immediate Action Required");
+          setTitle("Emergency Alert");
           setMessage(
-            "This is an urgent notice. Please follow safety instructions immediately."
+            "This is an emergency alert. Immediate action is required. Please follow safety instructions."
           );
           break;
       }
     } else if (type === "leave") {
+      // Don't auto-fill for leave - let user customize
       setTitle("");
-      // Don't reset message here to preserve any student-specific message
     }
   }, [type, subType]);
 
@@ -508,20 +502,22 @@ export default function AssistantPrincipalDashboard() {
           customMessage = `A leave notice has been submitted for ${selectedStudent.first_name} ${selectedStudent.last_name} (${selectedStudent.grade_level}).`;
         }
 
+        // Convert subtype to lowercase with underscores for database storage
+        const notificationType = subType.toLowerCase().replace(/\s+/g, '_');
+        
         const notifications = selectedLeaveParents.map((parentId) => ({
           user_id: parentId,
-          title: `Leave Notice: ${subType}`,
+          title: `${subType} Notification`,
           message: customMessage,
-          type: "leave",
+          type: notificationType, // ✅ Store subtype only (e.g., "sick_leave")
           is_read: false,
-          created_at: manilaTime, // ✅ FIXED: Use Manila time
-          leave_files: leaveAttachmentName, // Store in leave_files column
+          created_at: manilaTime,
+          leave_files: leaveAttachmentName,
           metadata: {
-            reason: subType,
             signature: signature,
             student_name: selectedStudent ? `${selectedStudent.first_name} ${selectedStudent.last_name}` : null,
             student_grade: selectedStudent ? selectedStudent.grade_level : null,
-            // attachment is now stored in leave_files column instead of metadata
+            original_type: "leave", // Keep original type in metadata
           },
         }));
 
@@ -538,9 +534,9 @@ export default function AssistantPrincipalDashboard() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                title: `Leave Notice: ${subType}`,
+                title: `${subType} Notification`,
                 message: customMessage,
-                type: "leave",
+                type: notificationType,
                 targetUserIds: selectedLeaveParents,
               }),
             });
@@ -557,7 +553,7 @@ export default function AssistantPrincipalDashboard() {
           setLeaveAttachmentName("");
           setSelectedStudent(null);
           setStudentSearchQuery("");
-          setMessage("A leave notice has been submitted."); // Reset to default message
+          setMessage("A leave notice has been submitted.");
           setAnnouncementPage(0);
           fetchAnnouncements();
         }
@@ -572,6 +568,16 @@ export default function AssistantPrincipalDashboard() {
         alert("Please fill in both title and message fields.");
         return;
       }
+      
+      // For urgent notifications, we need to convert subtype to database format
+      let notificationType = type;
+      if (type === "urgent" && subType) {
+        // Convert to lowercase with underscores (e.g., "disaster", "emergency")
+        notificationType = subType.toLowerCase().replace(/\s+/g, '_');
+      } else if (type === "announcement") {
+        notificationType = "announcement";
+      }
+      
       setLoading(true);
       setStatus("");
 
@@ -640,9 +646,10 @@ export default function AssistantPrincipalDashboard() {
             user_id: userId,
             title,
             message,
-            type,
+            type: notificationType, // ✅ Store subtype for urgent, announcement for others
             is_read: false,
-            created_at: manilaTime, // ✅ FIXED: Use Manila time
+            created_at: manilaTime,
+            metadata: type === "urgent" ? { original_type: "urgent" } : {},
           }));
 
           const { error: insertError } = await supabase
@@ -651,7 +658,7 @@ export default function AssistantPrincipalDashboard() {
 
           if (insertError) throw insertError;
 
-          // ✅ Send OneSignal push notifications (similar to RFID scan)
+          // ✅ Send OneSignal push notifications
           console.log("📡 Sending push notification to OneSignal...");
           try {
             const response = await fetch("/api/send-notifications", {
@@ -660,7 +667,7 @@ export default function AssistantPrincipalDashboard() {
               body: JSON.stringify({
                 title,
                 message,
-                type,
+                type: notificationType,
                 targetUserIds: uniqueTargetUserIds,
               }),
             });
@@ -697,7 +704,7 @@ export default function AssistantPrincipalDashboard() {
       const { data, count, error } = await supabase
         .from("notifications")
         .select("*", { count: "exact" })
-        .in("type", ["announcement", "urgent", "leave"])
+        .in("type", ["announcement", "disaster", "emergency", "sick_leave", "parental_leave", "medical_leave"])
         .order("created_at", { ascending: false })
         .range(
           announcementPage * ANNOUNCEMENT_PAGE_SIZE,
@@ -708,13 +715,18 @@ export default function AssistantPrincipalDashboard() {
       const mapped = data.map((item) => ({
         title: item.title || "No Title",
         message: item.message || "",
-        urgency: item.type === "urgent" ? "URGENT" : item.type === "leave" ? "LEAVE" : "ANNOUNCEMENT",
-        reason: item.metadata?.reason || null,
+        // Determine urgency based on type
+        urgency: item.type === "disaster" || item.type === "emergency" 
+          ? "URGENT" 
+          : item.type === "sick_leave" || item.type === "parental_leave" || item.type === "medical_leave"
+          ? "LEAVE"
+          : "ANNOUNCEMENT",
+        reason: item.type, // Now using the subtype as reason
         signature: item.metadata?.signature || null,
-        attachment: item.leave_files || null, // Now getting from leave_files column
+        attachment: item.leave_files || null,
         student_name: item.metadata?.student_name || null,
         student_grade: item.metadata?.student_grade || null,
-        date: formatManilaTime(item.created_at), // ✅ FIXED: Use Manila time formatter
+        date: formatManilaTime(item.created_at),
       }));
 
       setRecentAnnouncements(mapped);
@@ -756,7 +768,7 @@ export default function AssistantPrincipalDashboard() {
           ? `${item.student.first_name} ${item.student.last_name}`
           : "Unknown Student",
         consent: item.consent ? "✅ Yes" : "❌ No",
-        date: formatManilaTime(item.time_stamp), // ✅ FIXED: Use Manila time formatter
+        date: formatManilaTime(item.time_stamp),
       }));
 
       setHistoryLogs(mappedLogs);
@@ -872,9 +884,12 @@ export default function AssistantPrincipalDashboard() {
                 value={subType}
                 onChange={(e) => setSubType(e.target.value)}
                 className="w-full p-3 border border-[#800000] rounded-lg focus:ring-2 focus:ring-[#660000] transition"
+                required={type === "urgent" || type === "leave"}
               >
                 <option value="">
-                  {type === "leave" ? "Reason" : "Type of Notification"}
+                  {type === "leave" ? "Select Leave Reason" : 
+                   type === "urgent" ? "Select Urgent Type" : 
+                   "Type of Notification"}
                 </option>
                 {(type === "announcement"
                   ? announcementSubtypes
@@ -1135,7 +1150,7 @@ export default function AssistantPrincipalDashboard() {
 
             <button
               onClick={handleSend}
-              disabled={loading}
+              disabled={loading || (type === "urgent" && !subType) || (type === "leave" && !subType)}
               className="bg-[#800000] text-white px-5 py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-[#660000] w-full font-semibold transition disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               <Send size={18} />
@@ -1190,7 +1205,7 @@ export default function AssistantPrincipalDashboard() {
                           )}
                           {item.reason && (
                             <p className="text-xs text-blue-800 mb-2">
-                              <strong>Reason:</strong> {item.reason}
+                              <strong>Type:</strong> {item.reason.replace(/_/g, ' ')}
                             </p>
                           )}
                           {item.attachment && (
@@ -1228,6 +1243,14 @@ export default function AssistantPrincipalDashboard() {
                               />
                             </div>
                           )}
+                        </div>
+                      )}
+                      
+                      {item.urgency === "URGENT" && item.reason && (
+                        <div className="bg-red-50 p-2 rounded mb-2 border-l-2 border-red-600">
+                          <p className="text-xs text-red-800">
+                            <strong>Type:</strong> {item.reason.replace(/_/g, ' ')}
+                          </p>
                         </div>
                       )}
                       

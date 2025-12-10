@@ -14,6 +14,7 @@ export default function GuardDashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeView, setActiveView] = useState("dashboard"); // "dashboard" or "leave"
+  const [newLeaveCount, setNewLeaveCount] = useState(0); // New state for notification count
   const router = useRouter();
 
   useEffect(() => {
@@ -40,6 +41,9 @@ export default function GuardDashboard() {
         }
 
         setUser(data);
+        
+        // Fetch new leave notifications count
+        await fetchNewLeaveCount();
       } catch (error) {
         console.error("Error fetching user:", error);
         router.replace("/");
@@ -49,7 +53,64 @@ export default function GuardDashboard() {
     };
 
     fetchUser();
+    
+    // Set up real-time subscription for new leave notifications
+    const setupRealtimeSubscription = () => {
+      const channel = supabase
+        .channel('leave-notifications')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'leave_notifications'
+          },
+          () => {
+            fetchNewLeaveCount();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    };
+
+    setupRealtimeSubscription();
   }, [router]);
+
+  // Function to fetch new leave notifications count
+  const fetchNewLeaveCount = async () => {
+    try {
+      // Adjust this query based on your actual table structure
+      // This example assumes you have a 'status' field or 'created_at' field
+      const { count, error } = await supabase
+        .from('leave_notifications')
+        .select('*', { count: 'exact', head: true })
+        // You might want to filter by date (e.g., today) or by 'unread' status
+        // .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // Last 24 hours
+        .maybeSingle();
+
+      if (error) throw error;
+      
+      // For demo purposes, let's assume we want to show total count
+      // In production, you might want to filter by unread or recent notifications
+      const { count: totalCount } = await supabase
+        .from('leave_notifications')
+        .select('*', { count: 'exact', head: true });
+
+      setNewLeaveCount(totalCount || 0);
+    } catch (error) {
+      console.error('Error fetching new leave count:', error);
+    }
+  };
+
+  // Reset count when user views leave notifications
+  const handleLeaveClick = () => {
+    setActiveView("leave");
+    // Reset count when user views the notifications
+    setNewLeaveCount(0);
+  };
 
   if (loading) return <p className="p-6">Loading...</p>;
   if (!user) return <p className="p-6 text-red-500">User not authorized.</p>;
@@ -73,14 +134,19 @@ export default function GuardDashboard() {
             Dashboard
           </button>
           <button
-            onClick={() => setActiveView("leave")}
-            className={`px-6 py-2 rounded-lg font-medium transition ${
+            onClick={handleLeaveClick}
+            className={`px-6 py-2 rounded-lg font-medium transition relative ${
               activeView === "leave"
                 ? "bg-[#800000] text-white"
                 : "bg-gray-200 text-gray-700 hover:bg-gray-300"
             }`}
           >
             Leave Notifications
+            {newLeaveCount > 0 && (
+              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center animate-pulse">
+                {newLeaveCount > 99 ? '99+' : newLeaveCount}
+              </span>
+            )}
           </button>
         </div>
 

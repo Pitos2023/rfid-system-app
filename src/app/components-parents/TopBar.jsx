@@ -31,6 +31,23 @@ export default function TopBar({ currentView, setSidebarOpen }) {
   const role = sessionStorage.getItem("role") || "parent";
   const supabase = createScopedClient(role);
 
+  // ✅ Function to check if consent request requires time restriction
+  const requiresTimeRestriction = (notification) => {
+    // Check metadata for notification type
+    const notificationType = notification.metadata?.notification_type;
+    
+    // Special types that don't require time restriction
+    const specialTypes = ["disaster", "emergency", "sick_leave", "parental_leave", "medical_leave"];
+    
+    // If it's a special type, no time restriction needed
+    if (specialTypes.includes(notificationType)) {
+      return false;
+    }
+    
+    // For lunch or other types, check time
+    return true;
+  };
+
   // ✅ FIXED: Function to check if current time is within consent hours (12-1 PM Manila Time)
   const isWithinConsentHours = () => {
     const now = new Date();
@@ -160,7 +177,7 @@ export default function TopBar({ currentView, setSidebarOpen }) {
         return;
       }
 
-      // Query notifications table
+      // Query notifications table - include special types
       const { data, error } = await supabase
         .from("notifications")
         .select("*")
@@ -264,6 +281,7 @@ export default function TopBar({ currentView, setSidebarOpen }) {
           log_id,
           parent_id,
           notification_id: notif.id,
+          notification_type: notif.metadata?.notification_type || "lunch",
         }),
       });
 
@@ -325,6 +343,46 @@ export default function TopBar({ currentView, setSidebarOpen }) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // ✅ Helper function to render consent request notification
+  const renderConsentRequestNotification = (notif) => {
+    const requiresTimeCheck = requiresTimeRestriction(notif);
+    const showConsentButtons = notif.status === "pending" && 
+      (!requiresTimeCheck || (requiresTimeCheck && isWithinConsentHours()));
+    
+    return (
+      <>
+        <p className="text-gray-700 text-sm mb-3">
+          {notif.message}
+        </p>
+        
+        {showConsentButtons ? (
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => handleConsentResponse(notif, "yes")}
+              className="flex-1 bg-green-500 text-white text-sm py-2 rounded-lg hover:bg-green-600 transition-colors"
+            >
+              Yes
+            </button>
+            <button
+              onClick={() => handleConsentResponse(notif, "no")}
+              className="flex-1 bg-red-500 text-white text-sm py-2 rounded-lg hover:bg-red-600 transition-colors"
+            >
+              No
+            </button>
+          </div>
+        ) : notif.status === "pending" && requiresTimeCheck ? (
+          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
+            ⏰ Consent responses are only available between 12:00 PM - 12:59 PM
+          </div>
+        ) : null}
+        
+        <p className="text-xs text-gray-400 mt-2">
+          {formatManilaTime(notif.created_at)}
+        </p>
+      </>
+    );
+  };
 
   return (
     <>
@@ -402,16 +460,14 @@ export default function TopBar({ currentView, setSidebarOpen }) {
                               !notif.is_read ? "bg-blue-50" : "bg-white"
                             } hover:bg-gray-50 transition-colors`}
                           >
-                            {/* Leave Notification */}
-                            {notif.type === "leave" && (
+                            {/* Leave Notification (Special Types) */}
+                            {["sick_leave", "parental_leave", "medical_leave"].includes(notif.type) && (
                               <div className="space-y-2">
                                 <p className="text-gray-700 font-medium">{notif.title}</p>
                                 <p className="text-gray-600 text-sm">{notif.message}</p>
-                                {notif.metadata?.reason && (
-                                  <p className="text-sm text-blue-600">
-                                    <strong>Reason:</strong> {notif.metadata.reason}
-                                  </p>
-                                )}
+                                <p className="text-sm text-blue-600">
+                                  <strong>Type:</strong> {notif.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                </p>
                                 {notif.leave_files && (
                                   <div className="flex gap-2 mt-2">
                                     <button
@@ -448,49 +504,33 @@ export default function TopBar({ currentView, setSidebarOpen }) {
                               </div>
                             )}
 
-                            {/* Consent Request Notification */}
-                            {notif.type === "consent_request" && (
-                              <>
-                                <p className="text-gray-700 text-sm mb-3">
-                                  {notif.message}
+                            {/* Urgent Notification (Disaster/Emergency) */}
+                            {["disaster", "emergency"].includes(notif.type) && (
+                              <div className="space-y-2">
+                                <p className="text-gray-700 font-medium">{notif.title}</p>
+                                <p className="text-gray-600 text-sm">{notif.message}</p>
+                                <p className="text-sm text-red-600">
+                                  <strong>Type:</strong> {notif.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                                 </p>
-                                
-                                {/* ✅ FIXED: Check if within consent hours and status is pending */}
-                                {notif.status === "pending" && isWithinConsentHours() ? (
-                                  <div className="mt-2 flex gap-2">
-                                    <button
-                                      onClick={() => handleConsentResponse(notif, "yes")}
-                                      className="flex-1 bg-green-500 text-white text-sm py-2 rounded-lg hover:bg-green-600 transition-colors"
-                                    >
-                                      Yes
-                                    </button>
-                                    <button
-                                      onClick={() => handleConsentResponse(notif, "no")}
-                                      className="flex-1 bg-red-500 text-white text-sm py-2 rounded-lg hover:bg-red-600 transition-colors"
-                                    >
-                                      No
-                                    </button>
-                                  </div>
-                                ) : notif.status === "pending" ? (
-                                  <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
-                                    ⏰ Consent responses are only available between 12:00 PM - 12:59 PM
-                                  </div>
-                                ) : null}
-                                
                                 <p className="text-xs text-gray-400 mt-2">
                                   {formatManilaTime(notif.created_at)}
                                 </p>
-                              </>
+                              </div>
                             )}
 
-                            {/* Regular Notifications */}
-                            {notif.type !== "leave" && notif.type !== "consent_request" && (
+                            {/* Consent Request Notification */}
+                            {notif.type === "consent_request" && (
+                              renderConsentRequestNotification(notif)
+                            )}
+
+                            {/* Regular Notifications (Announcement, Checkin, Checkout) */}
+                            {!["consent_request", "disaster", "emergency", "sick_leave", "parental_leave", "medical_leave"].includes(notif.type) && (
                               <div>
                                 <p className="text-gray-700 font-medium">{notif.title}</p>
-                                <p className="text-gray-600 text-sm mt-1">{notif.message}</p>
-                                <p className="text-xs text-gray-400 mt-2">
+                                <p className="text-gray-600 text-sm mt-1">{notif.message} {formatManilaTime(notif.created_at)}</p>
+                                {/* <p className="text-xs text-gray-400 mt-2">
                                   {formatManilaTime(notif.created_at)}
-                                </p>
+                                </p> */}
                               </div>
                             )}
                           </div>

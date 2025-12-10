@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { createScopedClient } from "../supabaseClient";
 import { fetchLeaveNotifications } from "./utils";
-import { Download, Eye, FileText, Calendar, User, Mail } from "lucide-react";
+import { Download, Eye, FileText, Calendar, User, Mail, X } from "lucide-react";
 
 export default function LeaveNotifications() {
   const [leaveNotifications, setLeaveNotifications] = useState([]);

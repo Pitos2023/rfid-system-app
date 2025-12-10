@@ -39,7 +39,7 @@ async function sendOneSignalNotification(playerId, title, body, data = {}) {
         headings: { en: title },
         contents: { en: body },
         data,
-        url: "https://mastoparietal-besottingly-dann.ngrok-free.dev/parents?view=dashboard",
+        url: "https://sarahi-recriminatory-liane.ngrok-free.dev/parents?view=dashboard",
         web_push_topic: "rfid-scan",
         chrome_web_icon: "https://cdn-icons-png.flaticon.com/512/1828/1828640.png",
         ttl: 30,
@@ -209,6 +209,55 @@ async function ensureSmsLogsTable() {
   } catch (err) {
     console.error("❌ Error checking sms_logs table:", err.message);
     return false;
+  }
+}
+
+// ✅ Function to check if student has special notification types that require consent
+async function checkSpecialNotificationTypes(studentId, parentId) {
+  try {
+    // Define the special notification types that require consent
+    const specialTypes = ["disaster", "emergency", "sick_leave", "parental_leave", "medical_leave"];
+    
+    // Check if parent has any unread notification of these types
+    const { data: notifications, error } = await supabase
+      .from("notifications")
+      .select("id, type, title, message, created_at, metadata")
+      .eq("user_id", parentId)
+      .in("type", specialTypes)
+      .eq("is_read", false)
+      .order("created_at", { ascending: false })
+      .limit(5); // Get more to filter by student if needed
+    
+    if (error) {
+      console.error("❌ Error checking special notifications:", error);
+      return null;
+    }
+    
+    if (notifications && notifications.length > 0) {
+      // First, try to find a notification specifically for this student (check metadata)
+      const studentSpecificNotification = notifications.find(notif => {
+        // For leave notifications, check if metadata has student_id matching
+        if (["sick_leave", "parental_leave", "medical_leave"].includes(notif.type)) {
+          return notif.metadata?.student_id === studentId;
+        }
+        // For disaster/emergency, it applies to all students
+        return true;
+      });
+      
+      if (studentSpecificNotification) {
+        console.log(`🔍 Found special notification type: ${studentSpecificNotification.type} for student ${studentId}`);
+        return studentSpecificNotification;
+      }
+      
+      // If no student-specific notification found, return the first one (likely disaster/emergency)
+      console.log(`🔍 Found special notification type: ${notifications[0].type} (school-wide)`);
+      return notifications[0];
+    }
+    
+    return null;
+  } catch (err) {
+    console.error("❌ Error in checkSpecialNotificationTypes:", err);
+    return null;
   }
 }
 
@@ -383,14 +432,27 @@ export async function POST(req) {
           console.log("⚠️ No contact number for parent, skipping SMS");
         }
 
-        // ✅ Create consent request on time-out AND during 12-1 PM
+        // ✅ Check for special notification types that require consent on time-out
         if (action === "time-out") {
-          const isConsentTime = isWithinConsentHours();
-          console.log(`⏰ Consent request allowed: ${isConsentTime}`);
+          // Check if parent has any special notification types
+          const specialNotification = await checkSpecialNotificationTypes(student.id, parent.id);
           
-          if (isConsentTime) {
-            const consentTitle = `Consent Request: ${student.first_name} ${student.last_name}`;
-            const consentMessage = `Do you allow pick-up for ${student.first_name}? Reply YES or NO.`;
+          if (specialNotification) {
+            console.log(`🔍 Found special notification: ${specialNotification.type} for student check-out`);
+            
+            // Create consent request for special notification type
+            const notificationType = specialNotification.type;
+            const typeDisplay = notificationType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            
+            const consentTitle = `Consent Request: ${typeDisplay}`;
+            let consentMessage = "";
+            
+            // Customize message based on notification type
+            if (["sick_leave", "parental_leave", "medical_leave"].includes(notificationType)) {
+              consentMessage = `There is a ${typeDisplay} for ${student.first_name}. Do you allow ${student.first_name} to leave the school? Please reply YES or NO.`;
+            } else {
+              consentMessage = `There is a ${typeDisplay} situation. Do you allow ${student.first_name} to leave the school? Please reply YES or NO.`;
+            }
 
             // Store consent notification
             await supabase.from("notifications").insert([
@@ -403,10 +465,30 @@ export async function POST(req) {
                 created_at: manilaISO,
                 status: "pending",
                 log_id: newLog.id,
+                metadata: {
+                  notification_type: notificationType,
+                  original_notification_id: specialNotification.id,
+                  requires_consent: true,
+                  // Add student info for leave notifications
+                  ...(["sick_leave", "parental_leave", "medical_leave"].includes(notificationType) ? {
+                    student_name: student.first_name,
+                    student_id: student.id
+                  } : {})
+                },
               },
             ]);
 
-            // Send consent SMS if phone exists
+            // Send consent push notification
+            if (parent.onesignal_player_id) {
+              await sendOneSignalNotification(parent.onesignal_player_id, consentTitle, consentMessage, {
+                log_id: newLog.id,
+                student_id: student.id,
+                action: "consent_request",
+                notification_type: notificationType,
+              });
+            }
+
+            // ✅ Send consent SMS if phone exists
             if (parent.contact_number) {
               const consentSMS = `${consentTitle}\n${consentMessage}`;
               const consentSmsResult = await sendVonageSMS(parent.contact_number, consentSMS);
@@ -430,9 +512,72 @@ export async function POST(req) {
               }
             }
 
-            console.log("✅ Consent request created during allowed hours");
+            console.log(`✅ Special consent request created for ${notificationType}`);
           } else {
-            console.log("❌ Consent request NOT created - outside allowed hours (12-1 PM only)");
+            // Original lunch consent request (only during 12-1 PM)
+            const isConsentTime = isWithinConsentHours();
+            console.log(`⏰ Lunch consent request allowed: ${isConsentTime}`);
+            
+            if (isConsentTime) {
+              const consentTitle = `Consent Request: ${student.first_name} ${student.last_name}`;
+              const consentMessage = `Do you allow ${student.first_name} to go out or pick-up? Please go online and open the app to Reply YES or NO.`;
+
+              // Store consent notification
+              await supabase.from("notifications").insert([
+                {
+                  user_id: parent.id,
+                  title: consentTitle,
+                  message: consentMessage,
+                  type: "consent_request",
+                  is_read: false,
+                  created_at: manilaISO,
+                  status: "pending",
+                  log_id: newLog.id,
+                  metadata: {
+                    notification_type: "lunch",
+                    requires_consent: true,
+                  },
+                },
+              ]);
+
+              // Send consent push notification
+              if (parent.onesignal_player_id) {
+                await sendOneSignalNotification(parent.onesignal_player_id, consentTitle, consentMessage, {
+                  log_id: newLog.id,
+                  student_id: student.id,
+                  action: "consent_request",
+                  notification_type: "lunch",
+                });
+              }
+
+              // ✅ Send consent SMS if phone exists
+              if (parent.contact_number) {
+                const consentSMS = `${consentTitle}\n${consentMessage}`;
+                const consentSmsResult = await sendVonageSMS(parent.contact_number, consentSMS);
+                
+                // Log consent SMS if table exists
+                const tableExists = await ensureSmsLogsTable();
+                if (tableExists) {
+                  await supabase.from("sms_logs").insert([
+                    {
+                      user_id: parent.id,
+                      student_id: student.id,
+                      log_id: newLog.id,
+                      phone_number: parent.contact_number,
+                      formatted_number: formatPhoneNumberForVonage(parent.contact_number),
+                      message: consentSMS,
+                      status: consentSmsResult.success ? 'sent' : 'failed',
+                      type: 'consent_request',
+                      sent_at: manilaISO,
+                    },
+                  ]);
+                }
+              }
+
+              console.log("✅ Lunch consent request created during allowed hours");
+            } else {
+              console.log("❌ Lunch consent request NOT created - outside allowed hours (12-1 PM only)");
+            }
           }
         }
       }
