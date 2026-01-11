@@ -16,46 +16,84 @@ const ONESIGNAL_REST_KEY = process.env.ONE_SIGNAL_REST_KEY;
 const VONAGE_API_KEY = process.env.VONAGE_API_KEY;
 const VONAGE_API_SECRET = process.env.VONAGE_API_SECRET;
 
-// ✅ OneSignal Notification Function
+// ✅ OneSignal Notification Function with retry logic
 async function sendOneSignalNotification(playerId, title, body, data = {}) {
   if (!playerId) {
     console.warn("⚠️ No OneSignal Player ID provided — skipping notification.");
-    return;
+    return { success: false, error: "No player ID" };
   }
 
   console.log("📤 Sending OneSignal notification...");
   console.log("   ▶️ Player ID:", playerId);
 
-  try {
-    const response = await fetch("https://onesignal.com/api/v1/notifications", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        Authorization: `Basic ${ONESIGNAL_REST_KEY}`,
-      },
-      body: JSON.stringify({
-        app_id: ONESIGNAL_APP_ID,
-        include_player_ids: [playerId],
-        headings: { en: title },
-        contents: { en: body },
-        data,
-        url: "https://sarahi-recriminatory-liane.ngrok-free.dev/parents?view=dashboard",
-        web_push_topic: "rfid-scan",
-        chrome_web_icon: "https://cdn-icons-png.flaticon.com/512/1828/1828640.png",
-        ttl: 30,
-      }),
-    });
+  let lastError = null;
+  const maxRetries = 3;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`   ▶️ Attempt ${attempt} of ${maxRetries}`);
+      
+      // Add AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-    const result = await response.json();
+      const response = await fetch("https://onesignal.com/api/v1/notifications", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          Authorization: `Basic ${ONESIGNAL_REST_KEY}`,
+        },
+        body: JSON.stringify({
+          app_id: ONESIGNAL_APP_ID,
+          include_player_ids: [playerId],
+          headings: { en: title },
+          contents: { en: body },
+          data,
+          url: "https://sarahi-recriminatory-liane.ngrok-free.dev/parents?view=dashboard",
+          web_push_topic: "rfid-scan",
+          chrome_web_icon: "https://cdn-icons-png.flaticon.com/512/1828/1828640.png",
+          ttl: 30,
+        }),
+        signal: controller.signal,
+      });
 
-    if (response.ok) {
-      console.log("✅ OneSignal notification successfully sent!");
-    } else {
-      console.error("❌ OneSignal error response:", result.errors || result);
+      clearTimeout(timeoutId);
+      
+      const result = await response.json();
+
+      if (response.ok) {
+        console.log("✅ OneSignal notification successfully sent!");
+        return { success: true, result };
+      } else {
+        lastError = result;
+        console.error(`❌ OneSignal error (attempt ${attempt}):`, result.errors || result);
+        
+        // If it's a client error (4xx), don't retry
+        if (response.status >= 400 && response.status < 500) {
+          break;
+        }
+      }
+    } catch (err) {
+      lastError = err;
+      console.error(`❌ OneSignal fetch error (attempt ${attempt}):`, err.message);
+      
+      // Don't retry on abort (timeout)
+      if (err.name === 'AbortError') {
+        console.error("❌ Request timed out after 10 seconds");
+        break;
+      }
     }
-  } catch (err) {
-    console.error("❌ OneSignal fetch error:", err);
+    
+    // Wait before retrying (exponential backoff)
+    if (attempt < maxRetries) {
+      const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
+      console.log(`   ⏳ Waiting ${delay}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
+
+  console.error(`❌ Failed to send OneSignal notification after ${maxRetries} attempts`);
+  return { success: false, error: lastError };
 }
 
 // ✅ Function to format phone number for Vonage (E.164 format)
@@ -84,8 +122,8 @@ function formatPhoneNumberForVonage(phoneNumber) {
   return null;
 }
 
-// ✅ Vonage SMS Notification Function using REST API directly
-async function sendVonageSMS(phoneNumber, message) {
+// ✅ Vonage SMS Notification Function with duplicate prevention
+async function sendVonageSMS(phoneNumber, message, messageType = "scan") {
   if (!phoneNumber) {
     console.warn("⚠️ No phone number provided — skipping SMS.");
     return { success: false, error: "No phone number" };
@@ -93,6 +131,7 @@ async function sendVonageSMS(phoneNumber, message) {
 
   console.log("📱 Sending Vonage SMS...");
   console.log("   ▶️ Original phone number:", phoneNumber);
+  console.log("   ▶️ Message type:", messageType);
   
   // Format the phone number
   const formattedNumber = formatPhoneNumberForVonage(phoneNumber);
@@ -103,18 +142,47 @@ async function sendVonageSMS(phoneNumber, message) {
   }
 
   console.log("   ▶️ Formatted for Vonage:", formattedNumber);
-  console.log("   ▶️ Message:", message);
+  console.log("   ▶️ Message:", message.substring(0, 100) + (message.length > 100 ? "..." : ""));
 
   try {
-    // Use Vonage REST API directly (more reliable than SDK)
+    // Check if we recently sent the same message to avoid duplicates
+    const duplicateCheckKey = `${formattedNumber}:${messageType}:${message.substring(0, 50)}`;
+    const duplicateCheckTime = Date.now() - 60000; // 1 minute window
+    
+    // Simple in-memory cache for duplicate prevention
+    if (global.recentSMSMessages && global.recentSMSMessages[duplicateCheckKey]) {
+      const lastSent = global.recentSMSMessages[duplicateCheckKey];
+      if (Date.now() - lastSent < 30000) { // 30 second cooldown
+        console.log("⚠️ Skipping duplicate SMS send (within 30 seconds)");
+        return { success: true, skipped: true, reason: "duplicate" };
+      }
+    }
+    
+    // Initialize if not exists
+    if (!global.recentSMSMessages) {
+      global.recentSMSMessages = {};
+    }
+    
+    // Track this message
+    global.recentSMSMessages[duplicateCheckKey] = Date.now();
+    
+    // Clean old entries (older than 5 minutes)
+    for (const key in global.recentSMSMessages) {
+      if (Date.now() - global.recentSMSMessages[key] > 300000) {
+        delete global.recentSMSMessages[key];
+      }
+    }
+
+    // Use Vonage REST API directly
     const params = new URLSearchParams();
     params.append('api_key', VONAGE_API_KEY);
     params.append('api_secret', VONAGE_API_SECRET);
     params.append('to', formattedNumber);
-    params.append('from', 'Vonage'); // Try using 'Vonage' as sender ID
+    params.append('from', 'Vonage');
     params.append('text', message);
-    params.append('type', 'unicode');
-
+    
+    console.log("   ▶️ Sending to Vonage API...");
+    
     const response = await fetch('https://rest.nexmo.com/sms/json', {
       method: 'POST',
       headers: {
@@ -134,11 +202,22 @@ async function sendVonageSMS(phoneNumber, message) {
         console.log("✅ SMS sent successfully!");
         console.log("   ▶️ Message ID:", messageStatus['message-id']);
         console.log("   ▶️ Remaining balance:", messageStatus['remaining-balance']);
+        console.log("   ▶️ Message count:", result['message-count']);
+        
+        // Check for duplicate messages in response
+        if (result['message-count'] > 1) {
+          console.warn(`⚠️ Vonage sent ${result['message-count']} messages. Possible duplicate.`);
+          result.messages.forEach((msg, index) => {
+            console.log(`   ▶️ Message ${index + 1} ID: ${msg['message-id']}`);
+          });
+        }
+        
         return { 
           success: true, 
           messageId: messageStatus['message-id'],
           remainingBalance: messageStatus['remaining-balance'],
-          cost: messageStatus['message-price']
+          cost: messageStatus['message-price'],
+          messageCount: result['message-count']
         };
       } else {
         console.error("❌ SMS failed:");
@@ -201,8 +280,6 @@ async function ensureSmsLogsTable() {
     
     if (error && error.code === '42P01') {
       console.log("⚠️ sms_logs table doesn't exist, creating...");
-      // Table doesn't exist, you might want to create it
-      // For now, just log and continue
       return false;
     }
     return true;
@@ -212,21 +289,21 @@ async function ensureSmsLogsTable() {
   }
 }
 
-// ✅ Function to check if student has special notification types that require consent
+// ✅ UPDATED: Function to check if student has special notification types that require consent
 async function checkSpecialNotificationTypes(studentId, parentId) {
   try {
     // Define the special notification types that require consent
     const specialTypes = ["disaster", "emergency", "sick_leave", "parental_leave", "medical_leave"];
     
-    // Check if parent has any unread notification of these types
+    // UPDATED: Check for notifications that require consent (including urgent from metadata)
     const { data: notifications, error } = await supabase
       .from("notifications")
       .select("id, type, title, message, created_at, metadata")
       .eq("user_id", parentId)
-      .in("type", specialTypes)
       .eq("is_read", false)
+      .or(`type.in.(${specialTypes.join(',')}),metadata->>requires_consent.eq.true`)
       .order("created_at", { ascending: false })
-      .limit(5); // Get more to filter by student if needed
+      .limit(5);
     
     if (error) {
       console.error("❌ Error checking special notifications:", error);
@@ -240,17 +317,19 @@ async function checkSpecialNotificationTypes(studentId, parentId) {
         if (["sick_leave", "parental_leave", "medical_leave"].includes(notif.type)) {
           return notif.metadata?.student_id === studentId;
         }
-        // For disaster/emergency, it applies to all students
+        // For disaster/emergency or urgent from metadata, it applies to all students
         return true;
       });
       
       if (studentSpecificNotification) {
         console.log(`🔍 Found special notification type: ${studentSpecificNotification.type} for student ${studentId}`);
+        console.log(`🔍 Notification metadata:`, studentSpecificNotification.metadata);
         return studentSpecificNotification;
       }
       
-      // If no student-specific notification found, return the first one (likely disaster/emergency)
+      // If no student-specific notification found, return the first one (likely disaster/emergency/urgent)
       console.log(`🔍 Found special notification type: ${notifications[0].type} (school-wide)`);
+      console.log(`🔍 Notification metadata:`, notifications[0].metadata);
       return notifications[0];
     }
     
@@ -262,17 +341,24 @@ async function checkSpecialNotificationTypes(studentId, parentId) {
 }
 
 export async function POST(req) {
+  let startTime = Date.now();
+  
   try {
-    const { card_number } = await req.json();
+    const requestBody = await req.json();
+    console.log("🔹 Received request body:", JSON.stringify(requestBody));
+    const { card_number } = requestBody;
     const cleanCard = String(card_number || "").trim();
 
-    if (!cleanCard)
+    if (!cleanCard) {
+      console.error("❌ No card number provided");
       return new Response(
         JSON.stringify({ success: false, error: "card_number required" }),
         { status: 400 }
       );
+    }
 
-    console.log("🔹 Scanned card:", cleanCard);
+    console.log(`🔹 Processing scan for card: ${cleanCard}`);
+    console.log(`⏱️ Request started at: ${new Date(startTime).toISOString()}`);
 
     // ✅ Find RFID card
     let { data: cardData, error: cardError } = await supabase
@@ -349,11 +435,11 @@ export async function POST(req) {
 
         if (action === "time-in") {
           title = `${student.first_name} ${student.last_name} has checked in`;
-          body = `Has entered the school at ${displayTime}`;
+          body = `Has entered the school at`;
           type = "checkin";
         } else if (action === "time-out") {
           title = `${student.first_name} ${student.last_name} has checked out`;
-          body = `Has exited the school at ${displayTime}`;
+          body = `Has exited the school at`;
           type = "checkout";
         }
 
@@ -373,11 +459,15 @@ export async function POST(req) {
 
         // ✅ Send push notification
         if (parent.onesignal_player_id) {
-          await sendOneSignalNotification(parent.onesignal_player_id, title, body, {
+          const pushResult = await sendOneSignalNotification(parent.onesignal_player_id, title, body, {
             log_id: newLog.id,
             student_id: student.id,
             action,
           });
+          
+          if (!pushResult.success) {
+            console.error("❌ Failed to send push notification:", pushResult.error);
+          }
         }
 
         // ✅ Send SMS notification to contact_number
@@ -385,13 +475,13 @@ export async function POST(req) {
           console.log("📞 Parent contact number from database:", parent.contact_number);
           
           const smsMessage = `${title}\n${body}`;
-          const smsResult = await sendVonageSMS(parent.contact_number, smsMessage);
+          const smsResult = await sendVonageSMS(parent.contact_number, smsMessage, "scan_notification");
           
           // Check if table exists before logging
           const tableExists = await ensureSmsLogsTable();
           
           if (tableExists) {
-            if (smsResult.success) {
+            if (smsResult.success && !smsResult.skipped) {
               await supabase.from("sms_logs").insert([
                 {
                   user_id: parent.id,
@@ -408,6 +498,8 @@ export async function POST(req) {
                 },
               ]);
               console.log("✅ SMS logged to database");
+            } else if (smsResult.skipped) {
+              console.log("✅ SMS skipped (duplicate)");
             } else {
               await supabase.from("sms_logs").insert([
                 {
@@ -432,24 +524,37 @@ export async function POST(req) {
           console.log("⚠️ No contact number for parent, skipping SMS");
         }
 
-        // ✅ Check for special notification types that require consent on time-out
+        // ✅ UPDATED: Check for special notification types that require consent on time-out
         if (action === "time-out") {
           // Check if parent has any special notification types
           const specialNotification = await checkSpecialNotificationTypes(student.id, parent.id);
           
           if (specialNotification) {
             console.log(`🔍 Found special notification: ${specialNotification.type} for student check-out`);
+            console.log(`🔍 Notification metadata:`, specialNotification.metadata);
             
             // Create consent request for special notification type
             const notificationType = specialNotification.type;
-            const typeDisplay = notificationType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            let typeDisplay = "";
+            
+            // Determine display type based on notification
+            if (specialNotification.metadata?.original_type === "urgent") {
+              // This is an urgent notification from Assistant Principal
+              typeDisplay = specialNotification.metadata?.notification_subtype || "Urgent Alert";
+            } else {
+              typeDisplay = notificationType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
             
             const consentTitle = `Consent Request: ${typeDisplay}`;
             let consentMessage = "";
             
-            // Customize message based on notification type
+            // UPDATED: Customize message based on notification type
             if (["sick_leave", "parental_leave", "medical_leave"].includes(notificationType)) {
-              consentMessage = `There is a ${typeDisplay} for ${student.first_name}. Do you allow ${student.first_name} to leave the school? Please reply YES or NO.`;
+              const studentName = specialNotification.metadata?.student_name || student.first_name;
+              consentMessage = `There is a ${typeDisplay} for ${studentName}. Do you allow ${studentName} to leave the school? Please reply YES or NO.`;
+            } else if (notificationType === "disaster" || notificationType === "emergency" || specialNotification.metadata?.original_type === "urgent") {
+              // For urgent notifications, use the stored title and message
+              consentMessage = `URGENT: ${specialNotification.title}\n\nDo you allow ${student.first_name} to leave the school? Please reply YES or NO.`;
             } else {
               consentMessage = `There is a ${typeDisplay} situation. Do you allow ${student.first_name} to leave the school? Please reply YES or NO.`;
             }
@@ -469,11 +574,13 @@ export async function POST(req) {
                   notification_type: notificationType,
                   original_notification_id: specialNotification.id,
                   requires_consent: true,
-                  // Add student info for leave notifications
-                  ...(["sick_leave", "parental_leave", "medical_leave"].includes(notificationType) ? {
-                    student_name: student.first_name,
-                    student_id: student.id
-                  } : {})
+                  student_name: student.first_name,
+                  student_id: student.id,
+                  is_urgent: specialNotification.metadata?.original_type === "urgent",
+                  original_notification_title: specialNotification.title,
+                  ...(specialNotification.metadata?.original_type === "urgent" && {
+                    urgent_subtype: specialNotification.metadata?.notification_subtype
+                  })
                 },
               },
             ]);
@@ -485,13 +592,14 @@ export async function POST(req) {
                 student_id: student.id,
                 action: "consent_request",
                 notification_type: notificationType,
+                is_urgent: specialNotification.metadata?.original_type === "urgent",
               });
             }
 
             // ✅ Send consent SMS if phone exists
             if (parent.contact_number) {
               const consentSMS = `${consentTitle}\n${consentMessage}`;
-              const consentSmsResult = await sendVonageSMS(parent.contact_number, consentSMS);
+              const consentSmsResult = await sendVonageSMS(parent.contact_number, consentSMS, "consent_request");
               
               // Log consent SMS if table exists
               const tableExists = await ensureSmsLogsTable();
@@ -506,13 +614,14 @@ export async function POST(req) {
                     message: consentSMS,
                     status: consentSmsResult.success ? 'sent' : 'failed',
                     type: 'consent_request',
+                    notification_type: notificationType,
                     sent_at: manilaISO,
                   },
                 ]);
               }
             }
 
-            console.log(`✅ Special consent request created for ${notificationType}`);
+            console.log(`✅ Consent request created for ${notificationType}`);
           } else {
             // Original lunch consent request (only during 12-1 PM)
             const isConsentTime = isWithinConsentHours();
@@ -553,7 +662,7 @@ export async function POST(req) {
               // ✅ Send consent SMS if phone exists
               if (parent.contact_number) {
                 const consentSMS = `${consentTitle}\n${consentMessage}`;
-                const consentSmsResult = await sendVonageSMS(parent.contact_number, consentSMS);
+                const consentSmsResult = await sendVonageSMS(parent.contact_number, consentSMS, "lunch_consent");
                 
                 // Log consent SMS if table exists
                 const tableExists = await ensureSmsLogsTable();
@@ -595,14 +704,33 @@ export async function POST(req) {
           parent_id: student.users_id
         } : null
       }),
-      { status: 200 }
+      { 
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }
     );
   } catch (err) {
-    console.error("❌ RFID error:", err);
+    console.error("❌ RFID API error:", err.message);
     console.error("❌ Error stack:", err.stack);
+    console.error("❌ Error occurred at:", new Date().toISOString());
+    
     return new Response(
-      JSON.stringify({ success: false, error: err.message }),
-      { status: 500 }
+      JSON.stringify({ 
+        success: false, 
+        error: err.message,
+        timestamp: new Date().toISOString()
+      }),
+      { 
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }
     );
+  } finally {
+    const endTime = Date.now();
+    console.log(`⏱️ Request completed in: ${endTime - startTime}ms`);
   }
 }

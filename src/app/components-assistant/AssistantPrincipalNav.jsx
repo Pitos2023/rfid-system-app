@@ -517,7 +517,9 @@ export default function AssistantPrincipalDashboard() {
             signature: signature,
             student_name: selectedStudent ? `${selectedStudent.first_name} ${selectedStudent.last_name}` : null,
             student_grade: selectedStudent ? selectedStudent.grade_level : null,
+            student_id: selectedStudent ? selectedStudent.id : null,
             original_type: "leave", // Keep original type in metadata
+            requires_consent: true, // ✅ Add this flag for RFID scan
           },
         }));
 
@@ -571,11 +573,25 @@ export default function AssistantPrincipalDashboard() {
       
       // For urgent notifications, we need to convert subtype to database format
       let notificationType = type;
+      let metadata = {};
       if (type === "urgent" && subType) {
         // Convert to lowercase with underscores (e.g., "disaster", "emergency")
         notificationType = subType.toLowerCase().replace(/\s+/g, '_');
+        metadata = { 
+          original_type: "urgent",
+          requires_consent: true,  // ✅ Add this flag for RFID scan
+          notification_subtype: subType
+        };
       } else if (type === "announcement") {
         notificationType = "announcement";
+      } else if (type === "leave") {
+        metadata = {
+          original_type: "leave",
+          requires_consent: true,
+          student_name: selectedStudent ? `${selectedStudent.first_name} ${selectedStudent.last_name}` : null,
+          student_grade: selectedStudent ? selectedStudent.grade_level : null,
+          student_id: selectedStudent ? selectedStudent.id : null
+        };
       }
       
       setLoading(true);
@@ -649,7 +665,7 @@ export default function AssistantPrincipalDashboard() {
             type: notificationType, // ✅ Store subtype for urgent, announcement for others
             is_read: false,
             created_at: manilaTime,
-            metadata: type === "urgent" ? { original_type: "urgent" } : {},
+            metadata: metadata, // ✅ Use the metadata object we created above
           }));
 
           const { error: insertError } = await supabase
@@ -704,7 +720,7 @@ export default function AssistantPrincipalDashboard() {
       const { data, count, error } = await supabase
         .from("notifications")
         .select("*", { count: "exact" })
-        .in("type", ["announcement", "disaster", "emergency", "sick_leave", "parental_leave", "medical_leave"])
+        .or("type.eq.announcement,type.eq.disaster,type.eq.emergency,type.eq.sick_leave,type.eq.parental_leave,type.eq.medical_leave,metadata->>original_type.eq.urgent")
         .order("created_at", { ascending: false })
         .range(
           announcementPage * ANNOUNCEMENT_PAGE_SIZE,
@@ -716,12 +732,13 @@ export default function AssistantPrincipalDashboard() {
         title: item.title || "No Title",
         message: item.message || "",
         // Determine urgency based on type
-        urgency: item.type === "disaster" || item.type === "emergency" 
+        urgency: item.type === "disaster" || item.type === "emergency" || item.metadata?.original_type === "urgent"
           ? "URGENT" 
           : item.type === "sick_leave" || item.type === "parental_leave" || item.type === "medical_leave"
           ? "LEAVE"
           : "ANNOUNCEMENT",
         reason: item.type, // Now using the subtype as reason
+        metadata: item.metadata || {},
         signature: item.metadata?.signature || null,
         attachment: item.leave_files || null,
         student_name: item.metadata?.student_name || null,
@@ -1246,10 +1263,13 @@ export default function AssistantPrincipalDashboard() {
                         </div>
                       )}
                       
-                      {item.urgency === "URGENT" && item.reason && (
+                      {item.urgency === "URGENT" && (
                         <div className="bg-red-50 p-2 rounded mb-2 border-l-2 border-red-600">
                           <p className="text-xs text-red-800">
-                            <strong>Type:</strong> {item.reason.replace(/_/g, ' ')}
+                            <strong>Type:</strong> {item.reason.replace(/_/g, ' ')} • 
+                            <span className="ml-1 text-red-600 font-semibold">
+                              ⚠️ Will trigger consent request on student checkout
+                            </span>
                           </p>
                         </div>
                       )}

@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_KEY // ✅ Use service role key for server-side operations
 );
 
 // 📨 GET - Fetch notifications for a specific parent (no duplicates)
@@ -14,7 +14,10 @@ export async function GET(request) {
     if (!userId) {
       return new Response(
         JSON.stringify({ success: false, error: "Missing userId" }),
-        { status: 400 }
+        { 
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        }
       );
     }
 
@@ -30,13 +33,18 @@ export async function GET(request) {
     const gradeLevel = student?.grade_level || null;
 
     // Fetch notifications for userId or gradeLevel or general
-    const { data: notifications, error: notifError } = await supabase
+    let query = supabase
       .from("notifications")
       .select("*")
-      .or(
-        `user_id.eq.${userId},and(grade_level.eq.${gradeLevel}),grade_level.is.null`
-      )
       .order("created_at", { ascending: false });
+
+    if (gradeLevel) {
+      query = query.or(`user_id.eq.${userId},and(grade_level.eq.${gradeLevel}),grade_level.is.null`);
+    } else {
+      query = query.or(`user_id.eq.${userId},grade_level.is.null`);
+    }
+
+    const { data: notifications, error: notifError } = await query;
 
     if (notifError) throw notifError;
 
@@ -45,7 +53,7 @@ export async function GET(request) {
     const seen = new Set();
 
     for (const n of notifications) {
-      const key = `${n.title}-${n.message}`;
+      const key = `${n.title}-${n.message}-${n.created_at}`;
       if (!seen.has(key)) {
         seen.add(key);
         uniqueNotifications.push(n);
@@ -54,13 +62,19 @@ export async function GET(request) {
 
     return new Response(
       JSON.stringify({ success: true, notifications: uniqueNotifications }),
-      { status: 200 }
+      { 
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }
     );
   } catch (err) {
     console.error("❌ GET /api/notifications error:", err);
     return new Response(
       JSON.stringify({ success: false, error: err.message }),
-      { status: 500 }
+      { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      }
     );
   }
 }
@@ -69,12 +83,15 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { title, message, targetGradeLevel, targetParents, actionType, referenceId } = body;
+    const { title, message, targetGradeLevel, targetParents, actionType, referenceId, notificationType = "normal" } = body;
 
     if (!title || !message) {
       return new Response(
         JSON.stringify({ success: false, error: "Missing title or message" }),
-        { status: 400 }
+        { 
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        }
       );
     }
 
@@ -99,7 +116,10 @@ export async function POST(request) {
     if (targets.length === 0) {
       return new Response(
         JSON.stringify({ success: false, error: "No valid recipients found" }),
-        { status: 404 }
+        { 
+          status: 404,
+          headers: { 'Content-Type': 'application/json' }
+        }
       );
     }
 
@@ -116,12 +136,12 @@ export async function POST(request) {
       title,
       message,
       grade_level: s.grade_level || null,
-      type: actionType ? "action" : "normal", // mark as action if needed
-      action_type: actionType || null, // e.g., "yes_no"
-      reference_id: referenceId || null, // optional link
+      type: notificationType,
+      action_type: actionType || null,
+      reference_id: referenceId || null,
       created_at: new Date().toISOString(),
       is_read: false,
-      response: null, // store yes/no later
+      response: null,
     }));
 
     // Insert notifications
@@ -136,41 +156,100 @@ export async function POST(request) {
         message: "Notifications sent successfully",
         count: notifications.length,
       }),
-      { status: 200 }
+      { 
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }
     );
   } catch (err) {
     console.error("❌ POST /api/notifications error:", err);
     return new Response(
       JSON.stringify({ success: false, error: err.message }),
-      { status: 500 }
+      { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      }
     );
   }
 }
 
-// 📨 POST - Respond to Yes/No notifications
-export async function handleResponse(request) {
+// 📨 PATCH - Respond to Yes/No notifications
+export async function PATCH(request) {
   try {
     const { notificationId, response } = await request.json();
     if (!notificationId || !response) {
       return new Response(
         JSON.stringify({ success: false, error: "Missing parameters" }),
-        { status: 400 }
+        { 
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        }
       );
     }
+
+    // Validate response
+    const validResponses = ["yes", "no", "YES", "NO", "Yes", "No"];
+    if (!validResponses.includes(response)) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Response must be 'yes' or 'no'" }),
+        { 
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    // Normalize response to lowercase
+    const normalizedResponse = response.toLowerCase();
 
     // Update the notification with user response
     const { error } = await supabase
       .from("notifications")
-      .update({ response, is_read: true })
+      .update({ 
+        response: normalizedResponse, 
+        is_read: true,
+        updated_at: new Date().toISOString()
+      })
       .eq("id", notificationId);
+    
     if (error) throw error;
 
-    return new Response(JSON.stringify({ success: true }), { status: 200 });
+    // Also update the corresponding log entry if this is a consent response
+    const { data: notification } = await supabase
+      .from("notifications")
+      .select("log_id, metadata")
+      .eq("id", notificationId)
+      .single();
+    
+    if (notification?.log_id) {
+      await supabase
+        .from("log")
+        .update({ 
+          consent: normalizedResponse === "yes",
+          consent_response: normalizedResponse,
+          consent_updated_at: new Date().toISOString()
+        })
+        .eq("id", notification.log_id);
+    }
+
+    return new Response(
+      JSON.stringify({ 
+        success: true,
+        message: `Response '${normalizedResponse}' recorded successfully`
+      }), 
+      { 
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
   } catch (err) {
-    console.error("❌ POST /api/notification-response error:", err);
+    console.error("❌ PATCH /api/notifications error:", err);
     return new Response(
       JSON.stringify({ success: false, error: err.message }),
-      { status: 500 }
+      { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      }
     );
   }
 }
